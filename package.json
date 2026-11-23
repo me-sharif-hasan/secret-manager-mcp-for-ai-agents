@@ -35,13 +35,13 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "workspaces": [
     "dashboard"
   ],
   "scripts": {
-    "test": "node --test \"test/*.test.js\"",
+    "test": "node --test test/*.test.js",
     "start": "node src/cli/index.js dashboard",
     "build:dashboard": "npm run build -w dashboard",
     "prepack": "npm run build:dashboard",

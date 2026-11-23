@@ -8,6 +8,8 @@ conversation. Output is redacted on the way back.
 
 ## Quick start
 
+Requires Node 22 or newer.
+
 ```bash
 npm install
 npm run build:dashboard        # builds the React UI into dashboard/dist

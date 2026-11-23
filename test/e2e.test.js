@@ -33,7 +33,7 @@ test('wrapper: loads active env, redacts output, banner, exit code, cwd carried 
   assert.match(r.stdout, /\[secretmgr env=dev:FULL\]/);
   assert.match(r.stdout, /pw=\[REDACTED:PG_PASS\]/);
   assert.match(r.stdout, new RegExp(`len=${DEV_PW.length}`), 'the real value was available to the command');
-  assert.equal(r.stdout.trim().split('\n').pop(), '/tmp', 'cd inside the command persists');
+  assert.equal(r.stdout.trim().split('\n').pop(), fs.realpathSync('/tmp'), 'cd inside the command persists');
   const code = run(`${wrapped('exit 7')}\necho "rc=$?"`);
   assert.match(code.stdout, /rc=7/);
 });
