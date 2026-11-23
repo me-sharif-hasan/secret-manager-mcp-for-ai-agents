@@ -88,6 +88,15 @@ Claude Code hook behaviour to verify on your version (`claude --debug`): the hoo
 nested inside `hookSpecificOutput`. By default it does **not** set `permissionDecision`, so your normal permission
 prompts stay in charge. To auto-approve wrapped commands, set `{"hookAutoApprove": true}` in `~/.secretmgr/config.json`.
 
+## Releasing
+
+Releases are published by GitHub Actions with npm trusted publishing (no stored token) and signed provenance:
+
+```bash
+npm version patch          # or minor / major: bumps package.json, commits, tags
+git push --follow-tags     # the tag triggers .github/workflows/release.yml
+```
+
 ## Development
 
 ```bash

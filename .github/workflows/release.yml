@@ -2,12 +2,10 @@ name: Release
 
 # Publishes to npm from GitHub Actions when a version tag is pushed:
 #   npm version patch && git push --follow-tags
-# The package is never published from a laptop.
-#
-# FIRST RELEASE ONLY uses the NPM_TOKEN repository secret (a package that does not exist yet cannot have a
-# trusted publisher). After it is published: on npmjs.com open package "secretmgr" > Settings > Trusted Publisher >
-# GitHub Actions (repository me-sharif-hasan/secret-manager-mcp-for-ai-agents, workflow release.yml), then delete the
-# `env:` block under "Publish", delete the NPM_TOKEN secret and revoke the token. Later releases need no stored secret.
+# The package is never published from a laptop and no npm token is stored anywhere:
+# authentication is npm trusted publishing (OIDC). The trusted publisher is configured on npmjs.com under
+# package "secretmgr" > Settings > Trusted Publisher (repo me-sharif-hasan/secret-manager-mcp-for-ai-agents,
+# workflow release.yml). If you rename this file or the repo, update that setting too.
 
 on:
   push:
@@ -35,8 +33,6 @@ jobs:
       - run: npm test
       - name: Publish
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   github-release:
     needs: publish
