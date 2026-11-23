@@ -194,3 +194,27 @@ test('shell quoting survives hostile values', () => {
   assert.throws(() => emit('bash', { set: { 'BAD;NAME': 'x' } }), /unsafe variable name/);
   assert.throws(() => emit('bash', { unset: ['A B'] }), /unsafe variable name/);
 });
+
+test('deleteEnv removes values, access rules and agent references; keeps at least one env', async () => {
+  vault.createGroup('tmp-group');
+  vault.setVar('tmp-group', 'A_KEY', { values: { dev: 'dev-value-123456', uat: 'uat-value-123456' } });
+  vault.setEnvSettings('tmp-group', 'uat', { allow: true, approval: false });
+  st.activate('tmp-group', 'uat', {});
+  st.setTerminalDefaultEnv('uat');
+  assert.ok(st.getState().active.uat);
+
+  const r = vault.deleteEnv('tmp-group', 'uat');
+  st.afterEnvDeleted('tmp-group', 'uat', r.remaining[0]);
+  assert.equal(r.removedValues, 1);
+  assert.deepEqual(r.remaining, ['dev', 'prod']);
+  const view = vault.viewGroup('tmp-group');
+  assert.ok(!view.envs.uat);
+  assert.ok(!('uat' in view.vars[0].access) && !('uat' in view.vars[0].masked));
+  assert.ok(!JSON.stringify(vault.load()).includes('uat-value-123456'), 'deleted values are gone from the vault');
+  assert.equal(st.getState().active.uat, undefined, 'agent activation of the deleted env is cleared');
+  assert.equal(st.getState().terminalDefaultEnv, 'dev', 'terminal default falls back to a remaining env');
+  assert.throws(() => vault.deleteEnv('tmp-group', 'uat'), /does not exist/);
+
+  vault.deleteEnv('tmp-group', 'prod');
+  assert.throws(() => vault.deleteEnv('tmp-group', 'dev'), /at least one environment/);
+});

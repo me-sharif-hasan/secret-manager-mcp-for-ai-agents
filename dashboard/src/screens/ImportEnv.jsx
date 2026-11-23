@@ -1,13 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { Box, Button, Chip, MenuItem, Paper, Select, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Typography } from '@mui/material';
-import DownloadIcon from '@mui/icons-material/Download';
 import { useApp } from '../ctx.jsx';
 import { api } from '../api.js';
-import { EnvToggle, LEVELS } from '../ui.jsx';
-import { mono } from '../theme.js';
+import { Icon } from '../icons.jsx';
+import { OutSelect, Seg, Tag, LEVELS } from '../ui.jsx';
 
 const SAMPLE = ['# checkout-api local', 'export DATABASE_URL="postgres://app:x7Qp@db.dev.internal/app"', 'STRIPE_KEY=sk_test_51Hq0aEXAMPLE', 'REDIS_URL=redis://localhost:6379 # local cache', "FEATURE_FLAGS='a,b,c'"].join('\n');
-const CHIP = { new: 'success', changed: 'warning', unchanged: 'default', invalid: 'error' };
+const KIND = { new: 'ok', changed: 'warn', unchanged: '', invalid: 'bad' };
 
 export default function ImportEnv() {
   const { data, group, refresh, notify, setScreen, setEnv } = useApp();
@@ -47,9 +45,8 @@ export default function ImportEnv() {
   const exportEnv = async () => {
     try {
       const res = await api(`/groups/${group}/export?env=${target}`, { raw: true });
-      const blob = await res.blob();
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
+      a.href = URL.createObjectURL(await res.blob());
       a.download = `.env.${target}`;
       a.click();
       URL.revokeObjectURL(a.href);
@@ -60,69 +57,61 @@ export default function ImportEnv() {
   };
 
   return (
-    <Box sx={{ display: 'grid', gap: 2 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
-          <Typography color="text.secondary">Target</Typography>
-          <EnvToggle envs={envs} value={target} onChange={setTarget} />
-        </Box>
-        <Button variant="outlined" startIcon={<DownloadIcon />} onClick={exportEnv}>
+    <>
+      <div className="kv">
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span className="muted">Target</span>
+          <Seg items={envs} value={target} onChange={setTarget} dots />
+        </div>
+        <button className="btn outlined icon" onClick={exportEnv}>
+          <Icon name="download" />
           Export .env for {target}
-        </Button>
-      </Box>
-      <TextField
-        label="Paste .env contents"
-        multiline
-        minRows={9}
-        maxRows={20}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder={SAMPLE}
-        spellCheck={false}
-        slotProps={{ htmlInput: { style: mono } }}
-      />
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
-        <Typography color="text.secondary">Agent access for new variables</Typography>
-        <Select size="small" value={access} onChange={(e) => setAccess(e.target.value)}>
-          {LEVELS.map((l) => (
-            <MenuItem key={l} value={l}>
-              {l}
-            </MenuItem>
-          ))}
-        </Select>
-      </Box>
+        </button>
+      </div>
+
+      <div className="tf">
+        <label htmlFor="envtext">Paste .env contents</label>
+        <textarea id="envtext" rows={9} spellCheck={false} placeholder={SAMPLE} value={text} onChange={(e) => setText(e.target.value)} />
+      </div>
+
+      <div className="kv" style={{ justifyContent: 'flex-start', gap: 12 }}>
+        <span className="muted">Agent access for new variables</span>
+        <OutSelect value={access} options={LEVELS} label="Agent access for new variables" onChange={setAccess} />
+      </div>
+
       {rows.length > 0 && (
-        <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 4 }}>
-          <Table sx={{ minWidth: 520 }}>
-            <TableHead>
-              <TableRow>
-                <TableCell>Line</TableCell>
-                <TableCell>Key</TableCell>
-                <TableCell>Status</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
+        <div className="tablewrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Line</th>
+                <th>Key</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
               {rows.map((r) => (
-                <TableRow key={r.line}>
-                  <TableCell sx={mono}>{r.line}</TableCell>
-                  <TableCell sx={mono}>{r.key ?? r.text}</TableCell>
-                  <TableCell>
-                    <Chip size="small" color={CHIP[r.status]} label={r.status === 'invalid' ? `invalid: ${r.reason}` : r.status} />
-                  </TableCell>
-                </TableRow>
+                <tr key={r.line}>
+                  <td className="mono num">{r.line}</td>
+                  <td className="mono">{r.key ?? r.text}</td>
+                  <td>
+                    <Tag kind={KIND[r.status]}>{r.status === 'invalid' ? `invalid: ${r.reason}` : r.status}</Tag>
+                  </td>
+                </tr>
               ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
+            </tbody>
+          </table>
+        </div>
       )}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-        <Typography color="text.secondary">
-          {pending} to write into {target}. Comments and blank lines are skipped. ${'{VAR}'} references are kept literally.
-        </Typography>
-        <Button variant="contained" disabled={!pending} onClick={run}>
+
+      <div className="kv">
+        <span className="muted">
+          {pending} to write into {target}. Comments and blank lines are skipped. {'${VAR}'} references are kept literally.
+        </span>
+        <button className="btn filled" disabled={!pending} onClick={run}>
           Import {pending} variables
-        </Button>
-      </Box>
-    </Box>
+        </button>
+      </div>
+    </>
   );
 }

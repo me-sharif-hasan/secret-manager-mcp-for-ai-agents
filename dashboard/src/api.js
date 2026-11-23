@@ -3,6 +3,10 @@ const KEY = 'secretmgr-token';
 /** The CLI opens the dashboard as /#token=...; keep it in sessionStorage and strip it from the URL bar. */
 export function initToken() {
   const m = location.hash.match(/token=([\w-]+)/);
+  const screen = location.hash.match(/screen=([a-z]+)/);
+  const theme = location.hash.match(/theme=(dark|light)/);
+  if (theme) document.documentElement.dataset.theme = theme[1];
+  if (screen) sessionStorage.setItem('sm-screen', screen[1]); // deep link: /#token=...&screen=envs
   if (m) {
     sessionStorage.setItem(KEY, m[1]);
     history.replaceState(null, '', location.pathname + location.search);

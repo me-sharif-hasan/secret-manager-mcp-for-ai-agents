@@ -244,6 +244,10 @@ test('API: auth, host check, CRUD, reveal, import, kill, no values in views', as
   const exp = await call('GET', '/api/groups/billing-worker/export?env=dev');
   assert.match(exp.body, /A_ONE=1234567/);
 
+  assert.equal((await call('POST', '/api/groups/billing-worker/envs', { name: 'staging' })).statusCode, 201);
+  assert.equal((await call('DELETE', '/api/groups/billing-worker/envs/staging')).statusCode, 200);
+  assert.equal((await call('DELETE', '/api/groups/billing-worker/envs/staging')).statusCode, 404);
+  assert.ok(!(await call('GET', '/api/groups/billing-worker')).json().envs.staging);
   await call('PUT', '/api/groups/shop/envs/prod', { allow: false });
   assert.equal((await call('POST', '/api/agent/activate', { group: 'shop', env: 'prod' })).statusCode, 403);
   assert.equal((await call('POST', '/api/agent/activate', { group: 'shop', env: 'dev' })).statusCode, 200);

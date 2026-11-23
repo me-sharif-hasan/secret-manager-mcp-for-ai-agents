@@ -162,3 +162,15 @@ export async function waitForDecision(id, timeoutMs = 90_000) {
   });
   return 'timeout';
 }
+
+/** Drop anything that still points at a deleted environment. */
+export function afterEnvDeleted(group, env, fallbackEnv) {
+  return mutateState((s) => {
+    if (s.active[env]?.group === group) {
+      delete s.active[env];
+      fixPrimary(s);
+    }
+    for (const p of Object.values(s.pending)) if (p.group === group && p.env === env && p.status === 'waiting') p.status = 'denied';
+    if (s.terminalDefaultEnv === env && fallbackEnv) s.terminalDefaultEnv = fallbackEnv;
+  });
+}

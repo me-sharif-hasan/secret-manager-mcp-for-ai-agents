@@ -1,33 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
-import {
-  Box, Button, Card, CardContent, Dialog, DialogActions, DialogContent, DialogTitle, Fab, IconButton, InputAdornment, MenuItem, Paper, Select, Table, TableBody, TableCell,
-  TableContainer, TableHead, TableRow, TextField, Typography,
-} from '@mui/material';
-import AddIcon from '@mui/icons-material/Add';
-import CloseIcon from '@mui/icons-material/Close';
-import EditIcon from '@mui/icons-material/Edit';
-import DeleteIcon from '@mui/icons-material/Delete';
-import SearchIcon from '@mui/icons-material/Search';
-import UploadFileIcon from '@mui/icons-material/UploadFile';
-import VisibilityIcon from '@mui/icons-material/Visibility';
-import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import { useApp } from '../ctx.jsx';
 import { api, ago } from '../api.js';
-import { AccessSelect, EnvToggle, LevelChip, Confirm, LEVELS } from '../ui.jsx';
-import { mono } from '../theme.js';
+import { Icon } from '../icons.jsx';
+import { AccSelect, Confirm, Dialog, Field, OutSelect, Seg, Tag, LEVELS, levelKind } from '../ui.jsx';
 
 export default function Variables() {
   const { data, group, env, setEnv, refresh, notify, setScreen, state, guard } = useApp();
   const [q, setQ] = useState('');
   const [sel, setSel] = useState(null);
   const [revealed, setRevealed] = useState({});
-  const [edit, setEdit] = useState(null); // null | { key|null }
+  const [edit, setEdit] = useState(null);
   const [del, setDel] = useState(null);
   const timers = useRef({});
   const envs = Object.keys(data.envs);
   const rows = data.vars.filter((v) => !q || v.key.includes(q.toUpperCase()));
   const selected = data.vars.find((v) => v.key === sel);
-  const dead = state?.killed;
 
   useEffect(() => () => Object.values(timers.current).forEach(clearTimeout), []);
 
@@ -45,133 +32,129 @@ export default function Variables() {
       notify(err.message);
     }
   };
-
-  const setAccess = (key, e, level) =>
-    api(`/groups/${group}/vars/${key}/access`, { method: 'PUT', body: { env: e, level } }).then(refresh).catch((err) => notify(err.message));
+  const setAccess = (key, e, level) => api(`/groups/${group}/vars/${key}/access`, { method: 'PUT', body: { env: e, level } }).then(refresh).catch((err) => notify(err.message));
 
   return (
-    <Box sx={{ display: 'grid', gap: 2, position: 'relative', pb: 9 }}>
-      <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
-        <EnvToggle envs={envs} value={env} onChange={setEnv} />
-        <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
-          <TextField
-            size="small"
-            placeholder="Search variables"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment>, sx: { borderRadius: 7 } } }}
-          />
-          <Button variant="outlined" startIcon={<UploadFileIcon />} onClick={() => setScreen('import')}>
+    <>
+      <div className="kv">
+        <Seg items={envs} value={env} onChange={setEnv} dots />
+        <div className="toolbar">
+          <label className="search">
+            <Icon name="search" />
+            <input type="search" placeholder="Search variables" aria-label="Search variables" value={q} onChange={(e) => setQ(e.target.value)} />
+          </label>
+          <button className="btn outlined icon" onClick={() => setScreen('import')}>
+            <Icon name="upload_file" />
             Import .env
-          </Button>
-        </Box>
-      </Box>
+          </button>
+        </div>
+      </div>
 
-      <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', lg: selected ? 'minmax(0,1fr) 340px' : '1fr' }, alignItems: 'start' }}>
-        <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 4 }}>
-          <Table sx={{ minWidth: 620 }}>
-            <TableHead>
-              <TableRow>
-                <TableCell>Key</TableCell>
-                <TableCell>Value in {env}</TableCell>
-                <TableCell>Agent access</TableCell>
-                <TableCell>Updated</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
+      <div className={selected ? 'cols' : ''}>
+        <div className="tablewrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Key</th>
+                <th>Value in {env}</th>
+                <th>Agent access</th>
+                <th>Updated</th>
+              </tr>
+            </thead>
+            <tbody>
               {rows.map((v) => {
                 const id = `${v.key}|${env}`;
                 const shown = revealed[id];
                 return (
-                  <TableRow key={v.key} hover selected={sel === v.key} onClick={() => setSel(v.key)} sx={{ cursor: 'pointer', height: 56 }}>
-                    <TableCell sx={mono}>{v.key}</TableCell>
-                    <TableCell>
-                      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
-                        <Box component="span" sx={{ ...mono, color: v.masked[env] ? 'text.primary' : 'text.secondary', wordBreak: 'break-all' }}>
+                  <tr key={v.key} className={'row' + (sel === v.key ? ' sel' : '')} onClick={() => setSel(v.key)}>
+                    <td className="mono">{v.key}</td>
+                    <td>
+                      <span className="val">
+                        <span className="mono" style={{ wordBreak: 'break-all' }}>
                           {shown !== undefined ? shown : v.masked[env] ?? 'not set'}
-                        </Box>
+                        </span>
                         {v.masked[env] && (
-                          <IconButton size="small" aria-label={shown !== undefined ? 'Hide value' : 'Reveal value'} onClick={(e) => { e.stopPropagation(); reveal(v.key, env); }}>
-                            {shown !== undefined ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
-                          </IconButton>
+                          <button className="eye state" aria-label={shown !== undefined ? 'Hide value' : 'Reveal value'} onClick={(e) => { e.stopPropagation(); reveal(v.key, env); }}>
+                            <Icon name={shown !== undefined ? 'visibility_off' : 'visibility'} />
+                          </button>
                         )}
-                      </Box>
-                    </TableCell>
-                    <TableCell>
-                      <AccessSelect value={v.access[env]} dead={dead} onChange={(l) => setAccess(v.key, env, l)} />
-                    </TableCell>
-                    <TableCell sx={{ color: 'text.secondary' }}>{ago(v.updated)}</TableCell>
-                  </TableRow>
+                      </span>
+                    </td>
+                    <td>
+                      <AccSelect value={v.access[env]} dead={state?.killed} label={`Agent access for ${v.key} in ${env}`} onChange={(l) => setAccess(v.key, env, l)} />
+                    </td>
+                    <td className="muted">{ago(v.updated)}</td>
+                  </tr>
                 );
               })}
               {!rows.length && (
-                <TableRow>
-                  <TableCell colSpan={4} align="center" sx={{ py: 5, color: 'text.secondary' }}>
+                <tr>
+                  <td colSpan={4} className="empty">
                     {data.vars.length ? 'No variable matches your search.' : 'No variables yet. Add one, or import a .env file.'}
-                  </TableCell>
-                </TableRow>
+                  </td>
+                </tr>
               )}
-            </TableBody>
-          </Table>
-        </TableContainer>
+            </tbody>
+          </table>
+        </div>
 
         {selected && (
-          <Card>
-            <CardContent sx={{ display: 'grid', gap: 1.5 }}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Typography variant="h6" sx={mono}>
-                  {selected.key}
-                </Typography>
-                <IconButton aria-label="Close" onClick={() => setSel(null)}>
-                  <CloseIcon />
-                </IconButton>
-              </Box>
-              {envs.map((e) => (
-                <Box key={e}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Typography fontWeight={500} color="text.secondary">
-                      {e}
-                    </Typography>
-                    <LevelChip level={selected.access[e] ?? 'none'} />
-                  </Box>
-                  <Typography sx={{ ...mono, wordBreak: 'break-all' }}>{selected.masked[e] ?? 'not set'}</Typography>
-                </Box>
-              ))}
-              <Typography variant="body2" color="text.secondary">
-                Updated {ago(selected.updated)}
-              </Typography>
-              <Box sx={{ display: 'flex', gap: 1 }}>
-                <Button variant="outlined" startIcon={<EditIcon />} onClick={() => setEdit({ key: selected.key })}>
-                  Edit values
-                </Button>
-                <Button color="error" startIcon={<DeleteIcon />} onClick={() => setDel(selected.key)}>
-                  Delete
-                </Button>
-              </Box>
-            </CardContent>
-          </Card>
+          <div className="card">
+            <div className="kv">
+              <h3 className="mono">{selected.key}</h3>
+              <button className="iconbtn state" aria-label="Close" onClick={() => setSel(null)}>
+                <Icon name="close" />
+              </button>
+            </div>
+            {envs.map((e) => (
+              <div key={e}>
+                <div className="kv" style={{ minHeight: 32 }}>
+                  <span className="muted" style={{ fontWeight: 500 }}>
+                    {e}
+                  </span>
+                  <Tag kind={levelKind(selected.access[e] ?? 'none')}>{selected.access[e] ?? 'none'}</Tag>
+                </div>
+                <div className="mono" style={{ wordBreak: 'break-all' }}>
+                  {selected.masked[e] ?? 'not set'}
+                </div>
+              </div>
+            ))}
+            <span className="muted">Updated {ago(selected.updated)}</span>
+            <div className="actions-row">
+              <button className="btn outlined icon" onClick={() => setEdit({ key: selected.key })}>
+                <Icon name="edit" />
+                Edit values
+              </button>
+              <button className="btn text danger-text icon" onClick={() => setDel(selected.key)}>
+                <Icon name="delete" />
+                Delete
+              </button>
+            </div>
+          </div>
         )}
-      </Box>
+      </div>
 
-      <Fab variant="extended" color="primary" onClick={() => setEdit({ key: null })} sx={{ position: 'fixed', right: 32, bottom: 32, borderRadius: 4 }}>
-        <AddIcon sx={{ mr: 1 }} /> Add variable
-      </Fab>
+      <button className="fab" onClick={() => setEdit({ key: null })}>
+        <Icon name="add" />
+        Add variable
+      </button>
 
-      {edit && <EditDialog existing={edit.key ? selected || data.vars.find((v) => v.key === edit.key) : null} onClose={() => setEdit(null)} />}
-      <Confirm
-        open={Boolean(del)}
-        danger
-        title={`Delete ${del}?`}
-        body="This removes the variable and all of its values in every environment. It cannot be undone."
-        confirmLabel="Delete"
-        onCancel={() => setDel(null)}
-        onConfirm={() => {
-          api(`/groups/${group}/vars/${del}`, { method: 'DELETE' })
-            .then(() => { notify(`Deleted ${del}`); setSel(null); setDel(null); refresh(); })
-            .catch((e) => { setDel(null); guard(e); });
-        }}
-      />
-    </Box>
+      {edit && <EditDialog existing={edit.key ? data.vars.find((v) => v.key === edit.key) : null} onClose={() => setEdit(null)} />}
+      {del && (
+        <Confirm
+          danger
+          title={`Delete ${del}?`}
+          body="This removes the variable and all of its values in every environment. It cannot be undone."
+          confirmLabel="Delete"
+          onCancel={() => setDel(null)}
+          onConfirm={() =>
+            api(`/groups/${group}/vars/${del}`, { method: 'DELETE' })
+              .then(() => { notify(`Deleted ${del}`); setSel(null); setDel(null); refresh(); })
+              .catch((e) => { setDel(null); guard(e); })
+          }
+        />
+      )}
+    </>
   );
 }
 
@@ -201,54 +184,49 @@ function EditDialog({ existing, onClose }) {
   };
 
   return (
-    <Dialog open onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>{existing ? `Edit ${existing.key}` : 'Add variable'}</DialogTitle>
-      <DialogContent sx={{ display: 'grid', gap: 2, pt: '8px !important' }}>
-        {!existing && <TextField autoFocus label="Name" placeholder="DATABASE_URL" value={key} onChange={(e) => setKey(e.target.value)} error={Boolean(err)} helperText={err || 'Letters, numbers and underscores'} slotProps={{ htmlInput: { style: mono } }} />}
-        {existing && err && <Typography color="error">{err}</Typography>}
-        {envs.map((e) => (
-          <Box key={e} sx={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 1, alignItems: 'center' }}>
-            <TextField
-              label={`Value in ${e}`}
-              type="password"
-              autoComplete="new-password"
-              placeholder={existing ? (existing.masked[e] ? 'unchanged' : 'not set') : 'not set'}
-              value={clear[e] ? '' : vals[e] || ''}
-              disabled={clear[e]}
-              onChange={(ev) => setVals({ ...vals, [e]: ev.target.value })}
-              slotProps={{ htmlInput: { style: mono } }}
-            />
+    <Dialog
+      title={existing ? `Edit ${existing.key}` : 'Add variable'}
+      onClose={onClose}
+      wide
+      actions={
+        <>
+          <button className="btn text" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn filled" onClick={save}>
+            Save
+          </button>
+        </>
+      }
+    >
+      {!existing && <Field id="vkey" label="Name" placeholder="DATABASE_URL" value={key} onChange={setKey} mono autoFocus error={err} hint="Letters, numbers and underscores" bg="var(--surface-low)" />}
+      {existing && err && <p style={{ color: 'var(--error)' }}>{err}</p>}
+      {envs.map((e) => (
+        <div key={e} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 12, alignItems: 'start' }}>
+          <Field
+            id={`v-${e}`}
+            label={`Value in ${e}`}
+            type="password"
+            mono
+            bg="var(--surface-low)"
+            placeholder={existing ? (existing.masked[e] ? 'unchanged' : 'not set') : 'not set'}
+            value={clear[e] ? '' : vals[e] || ''}
+            onChange={(v) => setVals({ ...vals, [e]: v })}
+          />
+          <div style={{ minHeight: 48, display: 'flex', alignItems: 'center' }}>
             {existing ? (
               existing.masked[e] ? (
-                <Button size="small" color={clear[e] ? 'primary' : 'error'} onClick={() => setClear({ ...clear, [e]: !clear[e] })}>
+                <button className={'btn text' + (clear[e] ? '' : ' danger-text')} onClick={() => setClear({ ...clear, [e]: !clear[e] })}>
                   {clear[e] ? 'Keep' : 'Clear'}
-                </Button>
-              ) : (
-                <span />
-              )
+                </button>
+              ) : null
             ) : (
-              <Select size="small" value={acc[e]} onChange={(ev) => setAcc({ ...acc, [e]: ev.target.value })}>
-                {LEVELS.map((l) => (
-                  <MenuItem key={l} value={l}>
-                    {l}
-                  </MenuItem>
-                ))}
-              </Select>
+              <OutSelect value={acc[e]} options={LEVELS} label={`Agent access in ${e}`} onChange={(v) => setAcc({ ...acc, [e]: v })} />
             )}
-          </Box>
-        ))}
-        {!existing && (
-          <Typography variant="caption" color="text.secondary">
-            The dropdown on the right is the agent's access in that environment. Leave a value empty to skip that environment.
-          </Typography>
-        )}
-      </DialogContent>
-      <DialogActions sx={{ p: 2 }}>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" onClick={save}>
-          Save
-        </Button>
-      </DialogActions>
+          </div>
+        </div>
+      ))}
+      {!existing && <p className="sub">The dropdown on the right is the agent's access in that environment. Leave a value empty to skip that environment.</p>}
     </Dialog>
   );
 }

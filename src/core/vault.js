@@ -155,6 +155,23 @@ export function addEnv(group, env, { cloneFrom } = {}) {
   });
 }
 
+/** Permanently removes an environment: its settings and every variable's value and access rule for it. */
+export function deleteEnv(group, env) {
+  return mutate((d) => {
+    const g = grp(d, group);
+    checkEnv(g, env);
+    if (Object.keys(g.envs).length <= 1) throw new VaultError('A group needs at least one environment', 409);
+    delete g.envs[env];
+    let removedValues = 0;
+    for (const v of Object.values(g.vars)) {
+      if (v.values[env] !== undefined) removedValues++;
+      delete v.values[env];
+      delete v.access[env];
+    }
+    return { removedValues, remaining: Object.keys(g.envs) };
+  });
+}
+
 // ------------------------------------------------------------- variables
 
 export function setVar(group, key, { values = {}, access = {} } = {}) {

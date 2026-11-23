@@ -1,51 +1,49 @@
-import { Box, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip } from '@mui/material';
 import { useApp } from '../ctx.jsx';
 import { api } from '../api.js';
-import { AccessSelect } from '../ui.jsx';
-import { mono } from '../theme.js';
+import { AccSelect, Tag } from '../ui.jsx';
 
 export default function AgentAccess() {
   const { data, group, state, refresh, notify } = useApp();
   const envs = Object.keys(data.envs);
   const set = (key, env, level) => api(`/groups/${group}/vars/${key}/access`, { method: 'PUT', body: { env, level } }).then(refresh).catch((e) => notify(e.message));
   return (
-    <Box sx={{ display: 'grid', gap: 2 }}>
-      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-        <Chip color="error" variant="outlined" label="none: invisible to the agent" />
-        <Chip color="success" variant="outlined" label="use: available as $VAR in agent commands, output redacted" />
-        <Chip color="warning" variant="outlined" label="write: agent may also set or rotate it" />
-      </Box>
-      <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 4 }}>
-        <Table sx={{ minWidth: 520 }}>
-          <TableHead>
-            <TableRow>
-              <TableCell>Variable</TableCell>
+    <>
+      <div className="kv" style={{ justifyContent: 'flex-start', gap: 8 }}>
+        <Tag kind="bad">none · invisible to the agent</Tag>
+        <Tag kind="ok">use · available as $VAR in agent commands, output redacted</Tag>
+        <Tag kind="warn">write · agent may also set or rotate it</Tag>
+      </div>
+      <div className="tablewrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Variable</th>
               {envs.map((e) => (
-                <TableCell key={e}>{e}</TableCell>
+                <th key={e}>{e}</th>
               ))}
-            </TableRow>
-          </TableHead>
-          <TableBody>
+            </tr>
+          </thead>
+          <tbody>
             {data.vars.map((v) => (
-              <TableRow key={v.key} sx={{ height: 56 }}>
-                <TableCell sx={mono}>{v.key}</TableCell>
+              <tr key={v.key}>
+                <td className="mono">{v.key}</td>
                 {envs.map((e) => (
-                  <TableCell key={e}>
-                    <AccessSelect value={v.access[e]} dead={state?.killed} onChange={(l) => set(v.key, e, l)} />
-                  </TableCell>
+                  <td key={e}>
+                    <AccSelect value={v.access[e]} dead={state?.killed} label={`Agent access for ${v.key} in ${e}`} onChange={(l) => set(v.key, e, l)} />
+                  </td>
                 ))}
-              </TableRow>
+              </tr>
             ))}
             {!data.vars.length && (
-              <TableRow>
-                <TableCell colSpan={envs.length + 1} align="center" sx={{ py: 5, color: 'text.secondary' }}>
+              <tr>
+                <td colSpan={envs.length + 1} className="empty">
                   No variables in this group yet.
-                </TableCell>
-              </TableRow>
+                </td>
+              </tr>
             )}
-          </TableBody>
-        </Table>
-      </TableContainer>
-    </Box>
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }

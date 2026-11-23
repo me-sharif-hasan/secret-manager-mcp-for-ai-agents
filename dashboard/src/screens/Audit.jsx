@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Box, Chip, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
 import { useApp } from '../ctx.jsx';
 import { api } from '../api.js';
-import { mono } from '../theme.js';
+import { Tag } from '../ui.jsx';
 
 export default function Audit() {
   const { state, guard } = useApp();
@@ -13,54 +12,58 @@ export default function Audit() {
   }, [actor, state, guard]);
 
   return (
-    <Box sx={{ display: 'grid', gap: 2 }}>
-      <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-        <ToggleButtonGroup exclusive size="small" value={actor} onChange={(_, v) => v && setActor(v)} sx={{ '& .MuiToggleButton-root': { borderRadius: 5, px: 2, textTransform: 'none' } }}>
-          <ToggleButton value="all">All</ToggleButton>
-          <ToggleButton value="agent">Agent</ToggleButton>
-          <ToggleButton value="you">You</ToggleButton>
-        </ToggleButtonGroup>
-        <Typography color="text.secondary">Names and outcomes only. Values are never logged.</Typography>
-      </Box>
-      <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 4 }}>
-        <Table sx={{ minWidth: 720 }}>
-          <TableHead>
-            <TableRow>
-              <TableCell>Time</TableCell>
-              <TableCell>Actor</TableCell>
-              <TableCell>Action</TableCell>
-              <TableCell>Variable</TableCell>
-              <TableCell>Env</TableCell>
-              <TableCell>Result</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
+    <>
+      <div className="kv" style={{ justifyContent: 'flex-start', gap: 8 }}>
+        {['all', 'agent', 'you'].map((f) => (
+          <button key={f} className="step state" aria-current={actor === f} onClick={() => setActor(f)}>
+            {f}
+          </button>
+        ))}
+        <span className="muted" style={{ marginLeft: 8 }}>
+          Names and outcomes only. Values are never logged.
+        </span>
+      </div>
+      <div className="tablewrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Actor</th>
+              <th>Action</th>
+              <th>Variable</th>
+              <th>Env</th>
+              <th>Result</th>
+            </tr>
+          </thead>
+          <tbody>
             {rows.map((r, i) => {
               const result = String(r.result ?? '');
-              const bad = result.startsWith('blocked') || result.startsWith('denied');
+              const kind = result.startsWith('blocked') || result.startsWith('denied') ? 'bad' : result === 'ok' ? 'ok' : '';
               return (
-                <TableRow key={i} sx={{ height: 52 }}>
-                  <TableCell sx={{ ...mono, whiteSpace: 'nowrap' }}>{new Date(r.ts).toLocaleTimeString()}</TableCell>
-                  <TableCell>{r.actor}</TableCell>
-                  <TableCell sx={mono}>{r.action}</TableCell>
-                  <TableCell sx={mono}>{r.key || '-'}</TableCell>
-                  <TableCell>{r.env || '-'}</TableCell>
-                  <TableCell>
-                    <Chip size="small" color={bad ? 'error' : result === 'ok' ? 'success' : 'default'} label={result + (r.redactions ? ` · ${r.redactions} redacted` : '')} />
-                  </TableCell>
-                </TableRow>
+                <tr key={i}>
+                  <td className="mono num" style={{ whiteSpace: 'nowrap' }}>
+                    {new Date(r.ts).toLocaleTimeString()}
+                  </td>
+                  <td>{r.actor}</td>
+                  <td className="mono">{r.action}</td>
+                  <td className="mono">{r.key || '-'}</td>
+                  <td>{r.env || '-'}</td>
+                  <td>
+                    <Tag kind={kind}>{result + (r.redactions ? ` · ${r.redactions} redacted` : '')}</Tag>
+                  </td>
+                </tr>
               );
             })}
             {!rows.length && (
-              <TableRow>
-                <TableCell colSpan={6} align="center" sx={{ py: 5, color: 'text.secondary' }}>
+              <tr>
+                <td colSpan={6} className="empty">
                   No activity yet.
-                </TableCell>
-              </TableRow>
+                </td>
+              </tr>
             )}
-          </TableBody>
-        </Table>
-      </TableContainer>
-    </Box>
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }

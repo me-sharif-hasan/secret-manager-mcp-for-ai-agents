@@ -94,6 +94,14 @@ export async function buildApp({ token, port, staticDir } = {}) {
     return reply.code(201).send(r);
   });
 
+  app.delete('/api/groups/:g/envs/:env', async (req) => {
+    const { g, env } = req.params;
+    const r = vault.deleteEnv(g, env);
+    st.afterEnvDeleted(g, env, r.remaining[0]);
+    audit({ actor: 'you', action: 'delete_env', group: g, env, result: `${r.removedValues} values removed` });
+    return r;
+  });
+
   // --------------------------------------------------------- variables
   app.post('/api/groups/:g/vars', async (req, reply) => {
     const { key, values, access } = req.body || {};
