@@ -64,8 +64,8 @@ function request(msg, timeoutMs = 3000) {
 /** null when no agent is running (which means locked). */
 export const agentStatus = () => request({ op: 'status' });
 
-export async function fetchKey() {
-  const r = await request({ op: 'get' });
+export async function fetchKey({ touch = true } = {}) {
+  const r = await request({ op: 'get', touch });
   return r?.ok ? Buffer.from(r.key, 'base64') : null;
 }
 
@@ -163,7 +163,7 @@ export async function runKeyAgent() {
         }
         case 'get':
           if (!key) return reply({ ok: false });
-          arm(); // activity pushes the idle deadline back
+          if (msg.touch !== false) arm(); // real use pushes the idle deadline back; a dashboard poll does not
           return reply({ ok: true, key: key.toString('base64') });
         case 'idle':
           idleMs = Math.max(0, Number(msg.idleMin) || 0) * 60_000;

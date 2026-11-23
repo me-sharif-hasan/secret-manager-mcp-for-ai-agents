@@ -184,9 +184,9 @@ export function getMasterKey({ create = false } = {}) {
  * key is dropped from their memory as soon as nothing is using it, and re-fetched from the agent next time.
  * That is what makes "lock" effective in them. Throws LockedError when the vault is locked.
  */
-export async function acquireKey() {
+export async function acquireKey({ touch = true } = {}) {
   if (isProtected() && !sessionKey) {
-    const k = await fetchKey();
+    const k = await fetchKey({ touch });
     if (!k) throw new LockedError();
     sessionKey = k;
   }

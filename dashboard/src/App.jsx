@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api, AuthError } from './api.js';
+import { api, AuthError, LoginRequired, setSession } from './api.js';
 import { Ctx } from './ctx.jsx';
 import { Icon } from './icons.jsx';
 import { Confirm, Dialog, Field, OutSelect, cx } from './ui.jsx';
@@ -51,7 +51,13 @@ export default function App() {
     localStorage.setItem('sm-group', g);
     setGroupRaw(g);
   };
-  const guard = useCallback((e) => (e instanceof AuthError ? setLocked(true) : setFatal(e.message)), []);
+  const guard = useCallback((e) => {
+    if (e instanceof LoginRequired) {
+      setData(null); // drop everything that was on screen
+      setState((s) => s && { loggedIn: false, protected: true, locked: s.locked, needsSetup: false, unlockRequested: s.unlockRequested, killed: s.killed });
+    } else if (e instanceof AuthError) setLocked(true);
+    else setFatal(e.message);
+  }, []);
 
   const loadState = useCallback(async () => {
     try {
@@ -81,7 +87,8 @@ export default function App() {
 
   const refresh = useCallback(async () => {
     const s = await loadState();
-    if (s?.locked) return setData(null); // nothing to load until the vault is unlocked
+    if (!s) return;
+    if (!s.loggedIn) return setData(null); // nothing is loaded until the master password has been entered
     const has = (n) => n && s?.groups.some((x) => x.name === n);
     const g = has(group) ? group : has(s?.defaultGroup) ? s.defaultGroup : s?.groups[0]?.name;
     if (g && g !== group) setGroup(g);
@@ -102,7 +109,7 @@ export default function App() {
   const [finished, setFinished] = useState(false);
   useEffect(() => {
     if (!helperMode || !state) return;
-    if (state.locked || state.needsSetup) wasBlocked.current = true;
+    if (state.needsSetup || (state.protected && !state.loggedIn)) wasBlocked.current = true;
     else if (wasBlocked.current) setFinished(true);
   }, [helperMode, state]);
 
@@ -124,8 +131,10 @@ export default function App() {
   }
 
   if (finished) return <Done />;
-  if (state?.locked) return <Unlock state={state} onDone={refresh} />;
-  if (state?.needsSetup) {
+  if (!state) return fatal ? <p className="empty">{fatal}</p> : null;
+  // The master password is the login. A dashboard link alone, or an already unlocked vault, shows nothing.
+  if (state.protected && !state.loggedIn) return <Login state={state} onDone={refresh} />;
+  if (state.needsSetup) {
     return (
       <Ctx.Provider value={ctx}>
         <Setup state={state} onDone={refresh} />
@@ -137,6 +146,23 @@ export default function App() {
       </Ctx.Provider>
     );
   }
+
+  const signOut = () =>
+    api('/security/logout', { method: 'POST', body: {} })
+      .catch(() => {})
+      .finally(() => {
+        setSession(null);
+        setData(null);
+        setState((s) => s && { loggedIn: false, protected: true, locked: s.locked, needsSetup: false, unlockRequested: false, killed: s.killed });
+      });
+  const lockVault = () =>
+    api('/security/lock', { method: 'POST', body: {} })
+      .then(() => {
+        setSession(null);
+        setData(null);
+        setState((s) => s && { loggedIn: false, protected: true, locked: true, needsSetup: false, unlockRequested: false, killed: s.killed });
+      })
+      .catch(guard);
 
   const killed = state?.killed;
   const current = SCREENS.find((s) => s.id === screen);
@@ -185,6 +211,18 @@ export default function App() {
           <header className="appbar">
             <h2>{current.name}</h2>
             {group && <span className="tag">{group}</span>}
+            {state?.protected && (
+              <>
+                <button className="btn outlined icon" onClick={signOut} title="End this dashboard session. The vault stays unlocked for the agent until it auto-locks.">
+                  <Icon name="logout" />
+                  Sign out
+                </button>
+                <button className="btn outlined icon" onClick={lockVault} title="Lock the vault and sign out. Agent activations end and terminals clear their variables.">
+                  <Icon name="lock" />
+                  Lock
+                </button>
+              </>
+            )}
             {killed ? (
               <button className="btn danger-filled icon" onClick={() => api('/kill', { method: 'POST', body: { on: false } }).then(() => { notify('Agent access restored'); refresh(); }).catch(guard)}>
                 <Icon name="lock_open" />
@@ -305,7 +343,7 @@ function Setup({ state, onDone }) {
   );
 }
 
-function Unlock({ state, onDone }) {
+function Login({ state, onDone }) {
   const [pw, setPw] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -313,7 +351,8 @@ function Unlock({ state, onDone }) {
     setBusy(true);
     setErr('');
     try {
-      await api('/security/unlock', { method: 'POST', body: { password: pw } });
+      const r = await api('/security/login', { method: 'POST', body: { password: pw } });
+      setSession(r.session);
       setPw('');
       onDone();
     } catch (e) {
@@ -328,20 +367,20 @@ function Unlock({ state, onDone }) {
         <div className="logo">
           <Icon name="lock" />
         </div>
-        <h2>Vault locked</h2>
+        <h2>{state.locked ? 'Vault locked' : 'Sign in'}</h2>
         {state.unlockRequested && (
           <div className="banner warn" style={{ margin: 0 }}>
             <Icon name="verified_user" />
             <span className="t">The agent is waiting for you to unlock.</span>
           </div>
         )}
-        <p className="muted">Enter your master password. Nothing in the vault is readable until you do.</p>
+        <p className="muted">Enter your master password to open the dashboard. Nothing in the vault is shown until you do.</p>
         <div style={{ width: '100%', textAlign: 'left' }} onKeyDown={(e) => e.key === 'Enter' && pw && !busy && submit()}>
-          <Field id="unlock-pw" label="Master password" type="password" value={pw} onChange={setPw} autoFocus error={err} />
+          <Field id="login-pw" label="Master password" type="password" value={pw} onChange={setPw} autoFocus error={err} />
         </div>
         <button className="btn filled icon" disabled={!pw || busy} onClick={submit}>
           <Icon name="lock_open" />
-          Unlock
+          {state.locked ? 'Unlock' : 'Sign in'}
         </button>
       </div>
     </div>

@@ -157,37 +157,111 @@ test('idle auto-lock: the agent locks itself and clears activations', async () =
   fs.writeFileSync(file('config.json'), JSON.stringify({ idleLockMin: 30 }));
 });
 
-test('dashboard API: locked state, 423 on vault routes, unlock needs the password, throttled after repeated failures', async () => {
-  cli(['lock']);
+test('dashboard: the master password is the login. A link token alone never shows the vault, locked or unlocked', async () => {
   const token = 'test-token';
   const app = await buildApp({ token, port: 0 });
-  const call = (method, url, body) => app.inject({ method, url, payload: body, headers: { authorization: `Bearer ${token}`, host: undefined } });
-  const get = async (url) => (await app.inject({ method: 'GET', url, headers: { authorization: `Bearer ${token}` } }));
+  const h = { authorization: `Bearer ${token}` };
+  const withSession = (s) => ({ ...h, 'x-session': s });
+  const call = (method, url, payload, headers = h) => app.inject({ method, url, payload, headers });
 
-  let r = await get('/api/state');
+  // Vault LOCKED, token only.
+  cli(['lock']);
+  let r = await call('GET', '/api/state');
   assert.equal(r.statusCode, 200);
-  assert.equal(r.json().locked, true);
-  assert.deepEqual(r.json().groups, []);
-  r = await get('/api/groups/shop');
-  assert.equal(r.statusCode, 423);
-  assert.ok(!r.body.includes(SECRET));
+  assert.deepEqual([r.json().protected, r.json().locked, r.json().loggedIn], [true, true, false]);
+  assert.equal(r.json().groups, undefined, 'no vault details before sign-in');
+  r = await call('GET', '/api/groups/shop');
+  assert.equal(r.statusCode, 401);
+  assert.equal(r.json().code, 'login');
 
-  const post = (url, payload, method = 'POST') => app.inject({ method, url, payload, headers: { authorization: `Bearer ${token}` } });
-  r = await post('/api/security/unlock', { password: PW2 });
+  // Vault UNLOCKED (say, from a terminal earlier), token only: still nothing.
+  assert.equal(cli(['unlock'], `${PW2}\n`).status, 0);
+  r = await call('GET', '/api/state');
+  assert.equal(r.json().loggedIn, false);
+  assert.equal(r.json().groups, undefined);
+  assert.equal(r.json().active, undefined);
+  for (const [m, u, p] of [
+    ['GET', '/api/groups/shop'],
+    ['POST', '/api/groups/shop/vars/PG_PASS/reveal', { env: 'prod' }],
+    ['GET', '/api/groups/shop/export?env=prod'],
+    ['GET', '/api/audit'],
+    ['GET', '/api/security'],
+    ['POST', '/api/security/lock', {}],
+    ['PUT', '/api/security/idle', { minutes: 0 }],
+  ]) {
+    r = await call(m, u, p);
+    assert.equal(r.statusCode, 401, `${m} ${u} must need sign-in`);
+    assert.ok(!r.body.includes(SECRET));
+  }
+
+  // A bad token is a different failure from a missing session.
+  r = await app.inject({ method: 'GET', url: '/api/state', headers: { authorization: 'Bearer nope' } });
+  assert.equal(r.statusCode, 401);
+  assert.equal(r.json().code, 'token');
+
+  // Sign in: wrong password is refused (403, not 401), the right one starts a session.
+  r = await call('POST', '/api/security/login', { password: 'Wrong-pass-99' });
+  assert.equal(r.statusCode, 403);
+  assert.match(r.json().error, /Wrong password/);
+  r = await call('POST', '/api/security/login', { password: PW2 });
   assert.equal(r.statusCode, 200, r.body);
-  assert.equal(r.json().unlocked, true);
-  r = await get('/api/groups/shop');
+  const session = r.json().session;
+  assert.ok(session && session.length > 20);
+  r = await call('GET', '/api/groups/shop', undefined, withSession(session));
   assert.equal(r.statusCode, 200);
-
-  r = await post('/api/security/password', { current: PW2, next: 'weak' }, 'PUT');
+  r = await call('GET', '/api/state', undefined, withSession(session));
+  assert.equal(r.json().loggedIn, true);
+  assert.ok(r.json().groups.length >= 1);
+  r = await call('GET', '/api/groups/shop', undefined, withSession('made-up-session'));
+  assert.equal(r.statusCode, 401, 'a guessed session id is refused');
+  r = await call('PUT', '/api/security/password', { current: PW2, next: 'weak' }, withSession(session));
   assert.equal(r.statusCode, 400);
   assert.match(r.json().error, /at least 8/);
 
-  r = await post('/api/security/lock', {});
+  // Sign out ends only that session.
+  r = await call('POST', '/api/security/logout', {}, withSession(session));
+  assert.equal(r.statusCode, 200);
+  r = await call('GET', '/api/groups/shop', undefined, withSession(session));
+  assert.equal(r.statusCode, 401);
+  assert.match(cli(['status']).stdout, /unlocked/, 'the vault itself stays unlocked after sign-out');
+
+  // Lock ends every session and signing in again unlocks.
+  r = await call('POST', '/api/security/login', { password: PW2 });
+  const s2 = r.json().session;
+  r = await call('POST', '/api/security/lock', {}, withSession(s2));
   assert.equal(r.json().unlocked, false);
-  for (let i = 0; i < 5; i++) assert.equal((await post('/api/security/unlock', { password: 'Nope-nope-99' })).statusCode, 403);
-  r = await post('/api/security/unlock', { password: PW2 });
-  assert.equal(r.statusCode, 429, 'correct password is also refused while throttled');
+  r = await call('GET', '/api/state', undefined, withSession(s2));
+  assert.deepEqual([r.json().locked, r.json().loggedIn], [true, false]);
+  r = await call('POST', '/api/security/login', { password: PW2 });
+  assert.equal(r.statusCode, 200, 'signing in unlocks a locked vault');
+  const s3 = r.json().session;
+  assert.equal((await call('GET', '/api/groups/shop', undefined, withSession(s3))).statusCode, 200);
+
+  // Guessing is throttled, even for the right password afterwards.
+  for (let i = 0; i < 5; i++) assert.equal((await call('POST', '/api/security/login', { password: 'Nope-nope-99' })).statusCode, 403);
+  r = await call('POST', '/api/security/login', { password: PW2 });
+  assert.equal(r.statusCode, 429);
+  await app.close();
+});
+
+test('an open dashboard tab does not defeat auto-lock (status polls are not activity)', async () => {
+  cli(['lock']);
+  fs.writeFileSync(file('config.json'), JSON.stringify({ idleLockMin: 0.03 })); // about 1.8 s
+  const token = 'tok2';
+  const app = await buildApp({ token, port: 0 });
+  const h = { authorization: `Bearer ${token}` };
+  let r = await app.inject({ method: 'POST', url: '/api/security/login', headers: h, payload: { password: PW2 } });
+  assert.equal(r.statusCode, 200, r.body);
+  const hs = { ...h, 'x-session': r.json().session };
+  const until = Date.now() + 3500;
+  while (Date.now() < until) {
+    await app.inject({ method: 'GET', url: '/api/state', headers: hs });
+    await new Promise((res) => setTimeout(res, 300));
+  }
+  assert.match(cli(['status']).stdout, /LOCKED/, 'polling every 300 ms must not keep the vault unlocked');
+  r = await app.inject({ method: 'GET', url: '/api/state', headers: hs });
+  assert.equal(r.json().loggedIn, false, 'and the session ended with the lock');
+  fs.writeFileSync(file('config.json'), JSON.stringify({ idleLockMin: 30 }));
   await app.close();
 });
 

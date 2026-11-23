@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '../ctx.jsx';
-import { api } from '../api.js';
+import { api, setSession } from '../api.js';
 import { Icon } from '../icons.jsx';
 import { Field, OutSelect, Row, Tag } from '../ui.jsx';
 import { checkStrength } from '../../../src/core/strength.js';
@@ -94,7 +94,8 @@ export function SetupCard({ onDone }) {
     setBusy(true);
     setErr('');
     try {
-      await api('/security/enable', { method: 'POST', body: { password: fresh } });
+      const r = await api('/security/enable', { method: 'POST', body: { password: fresh } });
+      setSession(r.session);
       notify('Master password set. The vault is unlocked for this session.');
       onDone();
     } catch (e) {

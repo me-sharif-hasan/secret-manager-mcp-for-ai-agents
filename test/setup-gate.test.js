@@ -75,6 +75,7 @@ test('dashboard API: needsSetup is reported and agent activation is refused', as
   assert.equal(r.statusCode, 400, 'a weak password is refused');
   r = await app.inject({ method: 'POST', url: '/api/security/enable', headers: h, payload: { password: PW } });
   assert.equal(r.statusCode, 200, r.body);
+  assert.ok(r.json().session, 'setting the password signs you in');
   r = await app.inject({ method: 'GET', url: '/api/state', headers: h });
   assert.equal(r.json().needsSetup, false);
   assert.equal(r.json().protected, true);

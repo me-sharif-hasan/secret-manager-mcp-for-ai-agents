@@ -10,6 +10,7 @@ import delete_ from '@material-symbols/svg-400/outlined/delete.svg?raw';
 import download from '@material-symbols/svg-400/outlined/download.svg?raw';
 import edit from '@material-symbols/svg-400/outlined/edit.svg?raw';
 import history from '@material-symbols/svg-400/outlined/history.svg?raw';
+import logout from '@material-symbols/svg-400/outlined/logout.svg?raw';
 import key from '@material-symbols/svg-400/outlined/key.svg?raw';
 import layers from '@material-symbols/svg-400/outlined/layers.svg?raw';
 import lock from '@material-symbols/svg-400/outlined/lock.svg?raw';
@@ -29,7 +30,7 @@ import visibility from '@material-symbols/svg-400/outlined/visibility.svg?raw';
 import visibility_off from '@material-symbols/svg-400/outlined/visibility_off.svg?raw';
 
 const ICONS = {
-  add, arrow_drop_down, block, bolt, check, close, content_copy, dashboard, delete: delete_, download, edit, history, key, layers, lock, lock_open, person,
+  add, arrow_drop_down, block, bolt, check, close, content_copy, dashboard, delete: delete_, download, edit, history, key, layers, lock, lock_open, logout, person,
   power_settings_new, search, shield, shield_lock, smart_toy, sync, terminal, upload_file, verified_user, visibility, visibility_off, warning,
 };
 

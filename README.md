@@ -77,6 +77,12 @@ keychain (or a `0600` file), and anyone who copies the vault **and** the keychai
   without the password. A test checks that the key appears in no file after protection.
 - Unlock once per login session (`secretmgr unlock` or the dashboard). The key is then held in memory by a small
   per-user helper process (never written to disk) and auto-locks after 30 idle minutes (configurable, or never).
+- **The master password is the dashboard's login, every time.** The link's token only gets a browser to the sign-in page;
+  whether or not the vault happens to be unlocked, nothing from it is returned until you sign in. Signing in also
+  unlocks a locked vault. Sessions live in the dashboard process's memory (not on disk), end on **Sign out**, on **Lock**
+  (top bar) and when the vault locks, and wrong passwords are throttled. The dashboard's own status polling does not
+  count as activity, so an open tab does not defeat the idle auto-lock. Until a password is set, the server refuses
+  every data route, not just the UI.
 - Locking ends agent activations, and terminals clear their variables on the next prompt. While locked, the agent's
   Bash commands still run but with nothing loaded; `activate_env` answers "vault locked" and shows an unlock prompt in
   the dashboard. The agent never sees the password.

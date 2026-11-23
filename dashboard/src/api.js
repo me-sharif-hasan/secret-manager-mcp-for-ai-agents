@@ -1,4 +1,7 @@
 const KEY = 'secretmgr-token';
+const SESSION = 'secretmgr-session';
+
+export const setSession = (id) => (id ? sessionStorage.setItem(SESSION, id) : sessionStorage.removeItem(SESSION));
 
 /** The CLI opens the dashboard as /#token=...; keep it in sessionStorage and strip it from the URL bar. */
 export function initToken() {
@@ -17,15 +20,24 @@ export function initToken() {
 }
 
 export class AuthError extends Error {}
+/** The server wants the master password: no session, or the session ended (sign-out, lock, restart). */
+export class LoginRequired extends Error {}
 
 export async function api(path, { method = 'GET', body, raw } = {}) {
   const token = sessionStorage.getItem(KEY);
   const res = await fetch('/api' + path, {
     method,
-    headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+    headers: { Authorization: `Bearer ${token}`, ...(sessionStorage.getItem(SESSION) ? { 'X-Session': sessionStorage.getItem(SESSION) } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (res.status === 401) throw new AuthError('Session token missing or invalid');
+  if (res.status === 401) {
+    const why = await res.clone().json().catch(() => ({}));
+    if (why.code === 'login') {
+      setSession(null);
+      throw new LoginRequired(why.error);
+    }
+    throw new AuthError('This dashboard link is no longer valid');
+  }
   if (raw) {
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
     return res;

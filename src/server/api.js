@@ -5,10 +5,10 @@ import fastifyStatic from '@fastify/static';
 import * as vault from '../core/vault.js';
 import * as st from '../core/state.js';
 import { audit, readAudit } from '../core/audit.js';
-import { safeEqual } from '../core/crypto.js';
+import { safeEqual, randomToken } from '../core/crypto.js';
 import { keyBackendName, getMasterKey, acquireKey } from '../core/keystore.js';
 import * as security from '../core/security.js';
-import { LockedError, WrongPasswordError, requiresSetup } from '../core/lockbox.js';
+import { LockedError, WrongPasswordError, requiresSetup, isProtected } from '../core/lockbox.js';
 import { installShells } from '../shell/install.js';
 import { initScript, } from '../shell/init.js';
 import { openTerminal } from '../shell/terminal.js';
@@ -22,6 +22,25 @@ export async function buildApp({ token, port, staticDir, onActivity } = {}) {
   const app = Fastify({ logger: false, bodyLimit: 1_000_000 });
   const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
 
+  // The link's token only gets a browser to the sign-in page. Everything else needs a session, and a session is
+  // only issued for the master password. So opening the dashboard link never shows the vault, whether or not the
+  // vault happens to be unlocked. Sessions live in this process's memory and die with it.
+  const SESSION_MAX_MS = 12 * 3600_000;
+  const sessions = new Map();
+  const OPEN = new Set(['GET /api/state', 'POST /api/security/login', 'POST /api/security/enable']);
+  const sessionOf = (req) => {
+    const id = req.headers['x-session'];
+    const at = typeof id === 'string' ? sessions.get(id) : undefined;
+    if (at && Date.now() - at < SESSION_MAX_MS) return id;
+    if (at) sessions.delete(id);
+    return null;
+  };
+  const startSession = () => {
+    const id = randomToken();
+    sessions.set(id, Date.now());
+    return id;
+  };
+
   app.addHook('onRequest', async (req, reply) => {
     onActivity?.();
     if (port && !allowedHosts.has(req.headers.host)) return reply.code(403).send({ error: 'Bad Host header' });
@@ -30,7 +49,12 @@ export async function buildApp({ token, port, staticDir, onActivity } = {}) {
     if (origin && !allowedHosts.has(origin.replace(/^https?:\/\//, ''))) return reply.code(403).send({ error: 'Cross-origin request refused' });
     if (req.url === '/api/health') return;
     const auth = req.headers.authorization || '';
-    if (!token || !safeEqual(auth.replace(/^Bearer /, ''), token)) return reply.code(401).send({ error: 'Missing or invalid token. Open the dashboard with `secretmgr dashboard`.' });
+    if (!token || !safeEqual(auth.replace(/^Bearer /, ''), token)) return reply.code(401).send({ error: 'Missing or invalid token. Open the dashboard with `secretmgr dashboard`.', code: 'token' });
+    const route = `${req.method} ${req.url.split('?')[0]}`;
+    if (!OPEN.has(route)) {
+      if (requiresSetup()) return reply.code(403).send({ error: 'Set a master password first.', code: 'setup' });
+      if (isProtected() && !sessionOf(req)) return reply.code(401).send({ error: 'Sign in with your master password.', code: 'login' });
+    }
   });
 
   // The vault key is fetched from the key agent per request and dropped afterwards, so locking takes effect at once.
@@ -38,7 +62,9 @@ export async function buildApp({ token, port, staticDir, onActivity } = {}) {
   app.addHook('preHandler', async (req) => {
     if (!req.url.startsWith('/api/')) return;
     try {
-      req.releaseKey = await acquireKey();
+      // The dashboard's own status polls must not count as vault activity, or an open tab would defeat auto-lock.
+      const poll = req.method === 'GET' && (req.url === '/api/state' || req.url === '/api/security');
+      req.releaseKey = await acquireKey({ touch: !poll });
     } catch (e) {
       if (!(e instanceof LockedError)) throw e;
     }
@@ -53,28 +79,38 @@ export async function buildApp({ token, port, staticDir, onActivity } = {}) {
   // ------------------------------------------------------------- state
   app.get('/api/health', async () => ({ ok: true }));
 
-  app.get('/api/state', async () => {
+  app.get('/api/state', async (req) => {
     const s = st.getState();
+    const prot = isProtected();
+    const setup = requiresSetup();
     let backend = null;
     let groups = [];
     let locked = false;
-    try {
-      getMasterKey();
-      backend = keyBackendName();
-      groups = vault.vaultExists() ? vault.listGroups() : [];
-    } catch (e) {
-      if (e instanceof LockedError) {
-        locked = true;
-        backend = 'master password (locked)';
-      } /* else: vault not initialised yet */
+    if (!setup) {
+      try {
+        getMasterKey();
+        backend = keyBackendName();
+        groups = vault.vaultExists() ? vault.listGroups() : [];
+      } catch (e) {
+        if (e instanceof LockedError) {
+          locked = true;
+          backend = 'master password (locked)';
+        } /* else: vault not initialised yet */
+      }
     }
-    const sec = await security.securityStatus();
-    return {
+    if (locked) sessions.clear(); // a locked vault ends every dashboard session
+    const loggedIn = prot ? Boolean(sessionOf(req)) && !locked : !setup;
+    const base = {
       locked,
-      needsSetup: requiresSetup(),
-      protected: sec.protected,
+      needsSetup: setup,
+      protected: prot,
+      loggedIn,
       unlockRequested: Boolean(s.unlockRequestedAt && Date.now() - s.unlockRequestedAt < 10 * 60_000),
       killed: s.killed,
+    };
+    if (!loggedIn) return base; // nothing about the vault until the master password has been entered
+    return {
+      ...base,
       defaultGroup: s.defaultGroup,
       terminalDefaultEnv: s.terminalDefaultEnv,
       active: s.active,
@@ -117,13 +153,23 @@ export async function buildApp({ token, port, staticDir, onActivity } = {}) {
   app.get('/api/security', async () => security.securityStatus());
   app.post('/api/security/enable', async (req) => {
     await security.enableProtection(pw(req.body?.password, 'Password'));
-    return security.securityStatus();
+    return { ...(await security.securityStatus()), session: startSession() };
   });
-  app.post('/api/security/unlock', async (req) => {
+  // Sign in: verifies the master password, unlocks the vault if it is locked, and starts a dashboard session.
+  app.post('/api/security/login', async (req) => {
+    if (!isProtected()) throw Object.assign(new Error('No master password is set'), { status: 409 });
     await attempt(() => security.unlock(pw(req.body?.password, 'Password')));
-    return security.securityStatus();
+    audit({ actor: 'you', action: 'dashboard_login', result: 'ok' });
+    return { session: startSession() };
   });
+  app.post('/api/security/logout', async (req) => {
+    const id = req.headers['x-session'];
+    if (typeof id === 'string') sessions.delete(id);
+    return { ok: true };
+  });
+  // Lock the vault and end every dashboard session.
   app.post('/api/security/lock', async () => {
+    sessions.clear();
     await security.lock();
     return security.securityStatus();
   });
