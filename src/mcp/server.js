@@ -8,7 +8,9 @@ import { guidanceText, LEVEL_LABEL } from '../core/guidance.js';
 import { audit } from '../core/audit.js';
 import { runScoped } from '../shell/runner.js';
 import { withKey } from '../core/keystore.js';
-import { LockedError, requiresSetup } from '../core/lockbox.js';
+import { LockedError, requiresSetup, isProtected } from '../core/lockbox.js';
+import { lock as lockVault, securityStatus } from '../core/security.js';
+import { openUnlockUi } from '../core/unlockui.js';
 
 const INSTRUCTIONS = `This server manages secrets WITHOUT ever returning their values.
 Workflow: call list_envs, then activate_env("dev") (or another allowed environment). Afterwards, every Bash command you run can reference secrets as ordinary shell variables, for example:
@@ -17,16 +19,28 @@ The primary environment provides plain names ($PG_PASS). Every active environmen
 Never print, echo, or write a secret variable anywhere. Output is redacted, but do not rely on that. If a variable you need is missing, it may be hidden from agents: ask the user rather than searching for it.
 activate_env returns the owner's GUIDANCE for that environment (read-only, write or full). Follow it strictly. Every command banner repeats it, and the owner may enforce it by blocking commands. If in doubt about whether an action is allowed, ask the user.
 If activate_env is denied, tell the user which environment you need and why; they can enable it in the dashboard.
+When the user asks you to lock up, or says you are finished with secrets, call close_vault. It locks the vault again, ends all activations and makes the owner's terminals clear their variables; the owner must unlock it to continue. Do not call it on your own initiative.
 Use run_with_secrets only when Bash is unavailable or not protected by the secretmgr hook.`;
 
 const text = (obj) => ({ content: [{ type: 'text', text: typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2) }] });
 const fail = (msg) => ({ isError: true, content: [{ type: 'text', text: msg }] });
 
-const LOCKED_TEXT =
-  'The vault is locked. The owner must unlock it with their master password (dashboard, or `secretmgr unlock` in a terminal). A request was posted to the dashboard. Do not ask for the password: tell the user, then retry after they confirm.';
+const LOCKED_TEXT = 'The vault is locked, so no secret is available.';
+const SETUP_TEXT = 'The owner has not set a master password yet, and agents cannot use any secret until they do.';
+const WANTS_SECRETS = new Set(['activate_env', 'run_with_secrets', 'set_var']);
 
-const SETUP_TEXT =
-  'The owner has not set a master password yet, and agents cannot use any secret until they do. A setup request was posted. Tell the user to run `secretmgr dashboard` (it opens the setup screen), then retry. Do not ask for or suggest a password.';
+/** Post the request for the dashboard and, for tools that want secrets, open the owner's browser (rate-limited). */
+function blockedReply(tool, base) {
+  st.requestUnlock();
+  const opened = WANTS_SECRETS.has(tool) ? openUnlockUi() : 'disabled';
+  const next =
+    opened === 'opened'
+      ? 'A browser window was opened for the owner. Wait for them to finish there, then retry. If no window appeared, ask them to run `secretmgr dashboard`.'
+      : opened === 'recent'
+        ? 'A browser window was opened a moment ago and is waiting for the owner. Ask them to finish there (or run `secretmgr dashboard`), then retry.'
+        : 'Ask the owner to run `secretmgr dashboard` (or `secretmgr unlock`), then retry.';
+  return fail(`${base} ${next} Never ask for or suggest a password.`);
+}
 
 export function createServer() {
   const server = new McpServer({ name: 'secretmgr', version: '0.1.0' }, { instructions: INSTRUCTIONS });
@@ -36,19 +50,33 @@ export function createServer() {
   server.registerTool = (name, config, handler) =>
     register(name, config, async (...args) => {
       if (requiresSetup()) {
-        st.requestUnlock();
         audit({ actor: 'agent', action: name, result: 'denied: master password not set' });
-        return fail(SETUP_TEXT);
+        return blockedReply(name, SETUP_TEXT);
       }
       try {
         return await withKey(() => handler(...args));
       } catch (e) {
         if (!(e instanceof LockedError)) throw e;
-        st.requestUnlock();
         audit({ actor: 'agent', action: name, result: 'denied: vault locked' });
-        return fail(LOCKED_TEXT);
+        return blockedReply(name, LOCKED_TEXT);
       }
     });
+
+  // Locking only ever reduces access, so it needs no approval and must work even when already locked.
+  // It is registered directly (not through the key-bracketing wrapper above).
+  register(
+    'close_vault',
+    {
+      description:
+        'Lock the vault again: ends every activation, drops the key from memory, and makes the owner\'s terminals clear their variables on the next prompt. Use it when the owner asks you to lock up or says you are finished. The owner must unlock to continue.',
+    },
+    async () => {
+      if (!isProtected()) return fail('No master password is set, so there is nothing to lock.');
+      if (!(await securityStatus()).unlocked) return text({ locked: true, note: 'The vault was already locked.' });
+      await lockVault('agent');
+      return text({ locked: true, note: 'The vault is locked and all activations have ended. The owner must unlock it before you can use secrets again.' });
+    },
+  );
 
   server.registerTool(
     'status',

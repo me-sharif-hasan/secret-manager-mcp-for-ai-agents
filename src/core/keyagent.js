@@ -90,8 +90,8 @@ export async function putKey(key, idleMin) {
 
 export const setIdle = (idleMin) => request({ op: 'idle', idleMin });
 
-export async function lockAgent() {
-  const r = await request({ op: 'lock' });
+export async function lockAgent(actor = 'you') {
+  const r = await request({ op: 'lock', actor });
   return Boolean(r?.ok);
 }
 
@@ -171,7 +171,7 @@ export async function runKeyAgent() {
           return reply({ ok: true });
         case 'lock':
           reply({ ok: true });
-          await lockNow('you');
+          await lockNow(msg.actor === 'agent' ? 'agent' : 'you');
           return shutdown();
         default:
           return reply({ ok: false });

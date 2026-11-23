@@ -15,7 +15,7 @@ const DUMPERS = [
 
 const SELF = [
   [/\.secretmgr\b|SECRETMGR_[A-Z_]+/, 'touches the secretmgr data directory or settings'],
-  [/(?:secretmgr|cli\/index\.js)(?:\.js)?["']?\s+(?:env|reveal|export|shell|dashboard|install|uninstall|exec-env|redact|hook|mcp|unlock|protect|passwd|agent)\b/, 'calls a secretmgr command that can expose values'],
+  [/(?:secretmgr|cli\/index\.js)(?:\.js)?["']?\s+(?:env|reveal|export|shell|dashboard|install|uninstall|exec-env|redact|hook|mcp|unlock|unlock-ui|protect|passwd|agent)\b/, 'calls a secretmgr command that can expose values'],
   [/(?:secretmgr|cli\/index\.js)(?:\.js)?["']?\s+kill\b.*(?:--off|restore)/, 'tries to turn the kill switch off'],
 ];
 

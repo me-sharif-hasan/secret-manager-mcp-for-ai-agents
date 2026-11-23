@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, AuthError } from './api.js';
 import { Ctx } from './ctx.jsx';
 import { Icon } from './icons.jsx';
@@ -95,6 +95,17 @@ export default function App() {
     return () => clearInterval(t);
   }, [refresh]);
 
+  // A window opened for an agent has one job. Once the vault is unlocked (or the password is set) it says so
+  // and tries to close itself; browsers often refuse scripted closes, so the message stays as the fallback.
+  const helperMode = sessionStorage.getItem('sm-mode') === 'unlock';
+  const wasBlocked = useRef(false);
+  const [finished, setFinished] = useState(false);
+  useEffect(() => {
+    if (!helperMode || !state) return;
+    if (state.locked || state.needsSetup) wasBlocked.current = true;
+    else if (wasBlocked.current) setFinished(true);
+  }, [helperMode, state]);
+
   const ctx = useMemo(() => ({ state, group, data, env, setEnv, refresh, notify, setScreen, guard }), [state, group, data, env, refresh, notify, guard, setScreen]);
 
   if (locked || !sessionStorage.getItem('secretmgr-token')) {
@@ -112,6 +123,7 @@ export default function App() {
     );
   }
 
+  if (finished) return <Done />;
   if (state?.locked) return <Unlock state={state} onDone={refresh} />;
   if (state?.needsSetup) {
     return (
@@ -253,6 +265,24 @@ export default function App() {
         </div>
       )}
     </Ctx.Provider>
+  );
+}
+
+function Done() {
+  useEffect(() => {
+    const t = setTimeout(() => window.close(), 800);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24 }}>
+      <div className="card center" style={{ border: 0, background: 'transparent' }}>
+        <div className="logo">
+          <Icon name="lock_open" />
+        </div>
+        <h2>All set</h2>
+        <p className="muted">The vault is unlocked and Claude can continue. You can close this tab.</p>
+      </div>
+    </div>
   );
 }
 

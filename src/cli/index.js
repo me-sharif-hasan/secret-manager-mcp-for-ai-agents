@@ -12,7 +12,7 @@ import { createRedactor } from '../core/redact.js';
 import { resolveGroup } from '../core/policy.js';
 import { keyBackendName, getMasterKey, preloadKey } from '../core/keystore.js';
 import * as security from '../core/security.js';
-import { isProtected, LockedError, checkStrength } from '../core/lockbox.js';
+import { isProtected, LockedError, checkStrength, requiresSetup } from '../core/lockbox.js';
 import { file } from '../core/paths.js';
 import { randomToken } from '../core/crypto.js';
 import { terminalScript, agentScript, SHELLS } from '../shell/env.js';
@@ -46,7 +46,7 @@ Master password (the vault key is then wrapped by your password and is not store
   unlock | lock                Unlock the vault for this login session | lock it now
   passwd                       Change the master password
 
-Internal: env, shell-init, exec-env, redact, hook pretooluse, mcp, agent
+Internal: env, shell-init, exec-env, redact, hook pretooluse, mcp, agent, unlock-ui
 `;
 
 const die = (msg, code = 1) => {
@@ -241,6 +241,9 @@ async function main() {
     case 'agent':
       return (await import('../core/keyagent.js')).runKeyAgent();
 
+    case 'unlock-ui':
+      return startDashboard({ open: true, idleExitMin: 5, exitWhenUnlocked: true, mode: 'unlock' });
+
     case 'protect': {
       if (isProtected()) die('the vault already has a master password. Use `secretmgr passwd` to change it');
       if (!vault.vaultExists()) die('no vault yet. Run `secretmgr init` first');
@@ -375,15 +378,36 @@ async function main() {
 }
 
 /** Start the local dashboard server (the process stays alive while it listens). */
-async function startDashboard({ port: wanted, open, screen } = {}) {
+async function startDashboard({ port: wanted, open, screen, idleExitMin, exitWhenUnlocked, mode } = {}) {
   const { buildApp } = await import('../server/api.js');
   let port = Number(wanted || process.env.SECRETMGR_PORT || 7777);
   const token = randomToken();
+  let lastActivity = Date.now();
   for (let tries = 0; ; tries++) {
-    const app = await buildApp({ token, port, staticDir: path.resolve(HERE, '../../dashboard/dist') });
+    const app = await buildApp({ token, port, staticDir: path.resolve(HERE, '../../dashboard/dist'), onActivity: () => (lastActivity = Date.now()) });
     try {
       await app.listen({ host: '127.0.0.1', port });
-      const url = `http://127.0.0.1:${port}/#token=${token}${screen ? `&screen=${screen}` : ''}`;
+      if (idleExitMin) {
+        // Short-lived window opened for an agent: an open tab polls every few seconds, a closed one lets it expire.
+        setInterval(() => {
+          if (Date.now() - lastActivity > idleExitMin * 60_000) app.close().finally(() => process.exit(0));
+        }, 15_000);
+      }
+      if (exitWhenUnlocked) {
+        // The window exists to unlock or set up the vault. Once it has seen the vault blocked and then ready,
+        // give the page a moment to say "all set" and exit.
+        let armed = false;
+        let exiting = false;
+        setInterval(async () => {
+          const blocked = requiresSetup() || !(await security.securityStatus()).unlocked;
+          if (blocked) armed = true;
+          else if (armed && !exiting) {
+            exiting = true;
+            setTimeout(() => app.close().finally(() => process.exit(0)), 3000);
+          }
+        }, 1000);
+      }
+      const url = `http://127.0.0.1:${port}/#token=${token}${screen ? `&screen=${screen}` : ''}${mode ? `&mode=${mode}` : ''}`;
       process.stdout.write(`secretmgr dashboard running (local only). Open:\n  ${url}\nCtrl+C to stop.\n`);
       if (open) {
         const opener = process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] : ['xdg-open', [url]];

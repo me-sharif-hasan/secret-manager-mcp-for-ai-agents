@@ -275,7 +275,7 @@ test('MCP server: tools return names only, honour gates and kill switch', async 
   await client.connect(transport);
   try {
     const tools = (await client.listTools()).tools.map((t) => t.name).sort();
-    assert.deepEqual(tools, ['activate_env', 'deactivate_env', 'list_envs', 'list_vars', 'run_with_secrets', 'set_var', 'status']);
+    assert.deepEqual(tools, ['activate_env', 'close_vault', 'deactivate_env', 'list_envs', 'list_vars', 'run_with_secrets', 'set_var', 'status']);
     const call = async (name, args = {}) => {
       const r = await client.callTool({ name, arguments: args });
       return { isError: Boolean(r.isError), text: r.content.map((c) => c.text).join('\n') };

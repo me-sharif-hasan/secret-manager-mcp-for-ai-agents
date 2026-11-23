@@ -80,6 +80,15 @@ keychain (or a `0600` file), and anyone who copies the vault **and** the keychai
 - Locking ends agent activations, and terminals clear their variables on the next prompt. While locked, the agent's
   Bash commands still run but with nothing loaded; `activate_env` answers "vault locked" and shows an unlock prompt in
   the dashboard. The agent never sees the password.
+- When an agent calls `activate_env`, `run_with_secrets` or `set_var` while the vault is locked (or has no password yet),
+  your browser opens on the unlock (or setup) page by itself. It is a short-lived local dashboard: as soon as the vault
+  is unlocked the page says "All set" and tries to close its tab (browsers often refuse scripted closes, so close it
+  yourself if it stays), and the server exits a few seconds later. Otherwise it expires after 5 idle minutes. It opens
+  at most once every 2 minutes; turn it off with `{"autoOpenUnlock": false}` in `config.json`.
+  The agent is only told that a window was opened.
+- Tell the agent "lock up" or "you're done with secrets" and it can call the `close_vault` tool: the vault locks, all
+  activations end and your terminals clear their variables. Locking only ever reduces access, so it needs no approval;
+  unlocking always needs you.
 - Changing the password only re-wraps the key (instant, data is not re-encrypted). Wrong guesses in the dashboard are
   throttled.
 - **There is no recovery.** Forget the password and the vault is gone. The dashboard offers a generator for a random

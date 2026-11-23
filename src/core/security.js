@@ -74,8 +74,8 @@ export async function unlock(password) {
   bumpVersion(); // terminals reload their variables on the next prompt
 }
 
-export async function lock() {
-  await keyagent.lockAgent();
+export async function lock(actor = 'you') {
+  await keyagent.lockAgent(actor);
 }
 
 export async function changePassword(current, next) {

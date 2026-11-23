@@ -18,11 +18,12 @@ import { guidanceText } from '../core/guidance.js';
  * Local dashboard API. Defences: bound to 127.0.0.1 by the caller, bearer token on every /api call,
  * Host and Origin checks against DNS rebinding and cross-site requests, reveal rate limit.
  */
-export async function buildApp({ token, port, staticDir } = {}) {
+export async function buildApp({ token, port, staticDir, onActivity } = {}) {
   const app = Fastify({ logger: false, bodyLimit: 1_000_000 });
   const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
 
   app.addHook('onRequest', async (req, reply) => {
+    onActivity?.();
     if (port && !allowedHosts.has(req.headers.host)) return reply.code(403).send({ error: 'Bad Host header' });
     if (!req.url.startsWith('/api/')) return;
     const origin = req.headers.origin;

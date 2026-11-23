@@ -5,6 +5,8 @@ export function initToken() {
   const m = location.hash.match(/token=([\w-]+)/);
   const screen = location.hash.match(/screen=([a-z]+)/);
   const theme = location.hash.match(/theme=(dark|light)/);
+  const mode = location.hash.match(/mode=([a-z]+)/);
+  if (mode) sessionStorage.setItem('sm-mode', mode[1]); // 'unlock': a short-lived window opened for an agent
   if (theme) document.documentElement.dataset.theme = theme[1];
   if (screen) sessionStorage.setItem('sm-screen', screen[1]); // deep link: /#token=...&screen=envs
   if (m) {
