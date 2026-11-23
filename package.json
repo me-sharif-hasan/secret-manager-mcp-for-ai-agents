@@ -1,11 +1,39 @@
 {
   "name": "secretmgr",
   "version": "0.1.0",
-  "description": "Local secret manager for AI agent CLIs: env groups, per-variable agent access, shell sync, MCP server, kill switch.",
+  "description": "Local secret manager and MCP server that keeps secrets out of AI agent chats: encrypted vault, per-environment agent access and guidance, shell sync, Claude Code hook, kill switch, dashboard.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "secrets",
+    "secret-manager",
+    "env",
+    "dotenv",
+    "claude-code",
+    "ai-agents",
+    "security",
+    "redaction"
+  ],
+  "homepage": "https://github.com/me-sharif-hasan/secret-manager-mcp-for-ai-agents#readme",
+  "bugs": {
+    "url": "https://github.com/me-sharif-hasan/secret-manager-mcp-for-ai-agents/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/me-sharif-hasan/secret-manager-mcp-for-ai-agents.git"
+  },
+  "license": "MIT",
+  "author": "Sharif Hasan <me.sharif.hasan@gmail.com>",
   "type": "module",
   "bin": {
-    "secretmgr": "./src/cli/index.js"
+    "secretmgr": "src/cli/index.js"
   },
+  "files": [
+    "src/",
+    "dashboard/dist/",
+    "README.md",
+    "LICENSE"
+  ],
   "engines": {
     "node": ">=20"
   },
@@ -14,15 +42,18 @@
   ],
   "scripts": {
     "test": "node --test \"test/*.test.js\"",
+    "start": "node src/cli/index.js dashboard",
     "build:dashboard": "npm run build -w dashboard",
-    "start": "node src/cli/index.js dashboard"
+    "prepack": "npm run build:dashboard",
+    "prepublishOnly": "npm test"
   },
-  "license": "MIT",
-  "private": true,
   "dependencies": {
     "@fastify/static": "^10.1.12",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "fastify": "^5.12.8",
     "zod": "^4.6.7"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
