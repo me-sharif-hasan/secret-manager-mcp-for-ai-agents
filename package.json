@@ -1,0 +1,28 @@
+{
+  "name": "secretmgr",
+  "version": "0.1.0",
+  "description": "Local secret manager for AI agent CLIs: env groups, per-variable agent access, shell sync, MCP server, kill switch.",
+  "type": "module",
+  "bin": {
+    "secretmgr": "./src/cli/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "dashboard"
+  ],
+  "scripts": {
+    "test": "node --test \"test/*.test.js\"",
+    "build:dashboard": "npm run build -w dashboard",
+    "start": "node src/cli/index.js dashboard"
+  },
+  "license": "MIT",
+  "private": true,
+  "dependencies": {
+    "@fastify/static": "^10.1.12",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "fastify": "^5.12.8",
+    "zod": "^4.6.7"
+  }
+}
