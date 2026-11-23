@@ -1,6 +1,6 @@
 {
   "name": "secretmgr",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Local secret manager and MCP server that keeps secrets out of AI agent chats: encrypted vault, per-environment agent access and guidance, shell sync, Claude Code hook, kill switch, dashboard.",
   "keywords": [
     "mcp",
