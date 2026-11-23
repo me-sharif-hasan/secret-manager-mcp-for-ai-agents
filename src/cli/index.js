@@ -10,7 +10,9 @@ import * as st from '../core/state.js';
 import { audit } from '../core/audit.js';
 import { createRedactor } from '../core/redact.js';
 import { resolveGroup } from '../core/policy.js';
-import { keyBackendName, getMasterKey } from '../core/keystore.js';
+import { keyBackendName, getMasterKey, preloadKey } from '../core/keystore.js';
+import * as security from '../core/security.js';
+import { isProtected, LockedError, checkStrength } from '../core/lockbox.js';
 import { file } from '../core/paths.js';
 import { randomToken } from '../core/crypto.js';
 import { terminalScript, agentScript, SHELLS } from '../shell/env.js';
@@ -39,7 +41,12 @@ Daily use (inside a terminal that ran \`secretmgr install\`)
   kill [--off]                 Kill switch: cut all agent access (and clear terminals)
   status
 
-Internal: env, shell-init, exec-env, redact, hook pretooluse, mcp
+Master password (the vault key is then wrapped by your password and is not stored anywhere)
+  protect                      Set a master password (or use the dashboard: Security)
+  unlock | lock                Unlock the vault for this login session | lock it now
+  passwd                       Change the master password
+
+Internal: env, shell-init, exec-env, redact, hook pretooluse, mcp, agent
 `;
 
 const die = (msg, code = 1) => {
@@ -68,6 +75,31 @@ async function readSecretValue(prompt) {
   return v;
 }
 
+/** Hidden prompts for passwords. Non-interactive input (one answer per line) is for tests only. */
+let pipedLines = null;
+async function readPasswords(prompts) {
+  if (!process.stdin.isTTY) {
+    if (process.env.SECRETMGR_ALLOW_NONTTY !== '1') die('passwords are only read from an interactive terminal', 3);
+    if (!pipedLines) {
+      let data = '';
+      for await (const c of process.stdin) data += c;
+      pipedLines = data.split(/\r?\n/);
+    }
+    return pipedLines.splice(0, prompts.length);
+  }
+  const out = [];
+  for (const p of prompts) out.push(await readSecretValue(p));
+  return out;
+}
+
+async function newPassword() {
+  const [pw, again] = await readPasswords(['New master password: ', 'Repeat it: ']);
+  if (pw !== again) die('the two passwords differ');
+  const s = checkStrength(pw);
+  if (!s.ok) die(s.reason);
+  return pw;
+}
+
 async function confirm(question, yes) {
   if (yes) return true;
   if (!process.stdin.isTTY) return false;
@@ -90,6 +122,7 @@ process.stdout.on('error', (e) => {
 const [cmd, ...rest] = process.argv.slice(2);
 
 async function main() {
+  if (cmd && cmd !== 'agent' && cmd !== 'help') await preloadKey();
   switch (cmd) {
     case undefined:
     case 'help':
@@ -112,8 +145,17 @@ async function main() {
         const r = installClaude();
         process.stdout.write(`  claude hook: ${r.settings}\n  claude mcp: ${r.mcp}\n`);
       } else process.stdout.write('Skipped Claude Code. Run `secretmgr install --claude` later.\n');
-      process.stdout.write('\nNext: `secretmgr dashboard`, then open a new terminal.\n');
-      return;
+      if (isProtected()) {
+        process.stdout.write('\nNext: `secretmgr dashboard`, then open a new terminal.\n');
+        return;
+      }
+      process.stdout.write('\nA master password is required before agents can use any secret.\n');
+      if (!process.stdin.isTTY) {
+        process.stdout.write('Set it with `secretmgr protect`, or open `secretmgr dashboard`.\n');
+        return;
+      }
+      process.stdout.write('Opening the dashboard so you can set it. Press Ctrl+C here when you are done.\n');
+      return startDashboard({ open: true, screen: 'security' });
     }
 
     case 'install': {
@@ -136,26 +178,7 @@ async function main() {
 
     case 'dashboard': {
       const { values } = flags(rest, { port: { type: 'string' }, 'no-open': { type: 'boolean' } });
-      const { buildApp } = await import('../server/api.js');
-      let port = Number(values.port || process.env.SECRETMGR_PORT || 7777);
-      const token = randomToken();
-      for (let tries = 0; ; tries++) {
-        const app = await buildApp({ token, port, staticDir: path.resolve(HERE, '../../dashboard/dist') });
-        try {
-          await app.listen({ host: '127.0.0.1', port });
-          const url = `http://127.0.0.1:${port}/#token=${token}`;
-          process.stdout.write(`secretmgr dashboard running (local only). Open:\n  ${url}\nCtrl+C to stop.\n`);
-          if (!values['no-open']) {
-            const opener = process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] : ['xdg-open', [url]];
-            spawn(opener[0], opener[1], { detached: true, stdio: 'ignore' }).on('error', () => {}).unref();
-          }
-          return;
-        } catch (e) {
-          await app.close();
-          if (e.code === 'EADDRINUSE' && tries < 10) port++;
-          else throw e;
-        }
-      }
+      return startDashboard({ port: values.port, open: !values['no-open'] });
     }
 
     case 'env': {
@@ -183,9 +206,14 @@ async function main() {
     }
 
     case 'exec-env':
-      return process.stdout.write(agentScript());
+      return process.stdout.write(agentScript({ locked: rest.includes('--locked') }));
 
     case 'redact': {
+      if (rest.includes('--locked')) {
+        // The wrapper loaded nothing because the vault was locked when the command started.
+        process.stdin.pipe(process.stdout);
+        return;
+      }
       let redactor;
       try {
         redactor = createRedactor(vault.allSecrets());
@@ -210,6 +238,37 @@ async function main() {
       return runMcp();
     }
 
+    case 'agent':
+      return (await import('../core/keyagent.js')).runKeyAgent();
+
+    case 'protect': {
+      if (isProtected()) die('the vault already has a master password. Use `secretmgr passwd` to change it');
+      if (!vault.vaultExists()) die('no vault yet. Run `secretmgr init` first');
+      process.stderr.write('Choose a long, random password. There is NO recovery: if you forget it, the vault cannot be opened.\n');
+      await security.enableProtection(await newPassword());
+      return process.stdout.write('Master password set. The key was removed from the keychain; the vault is unlocked for this login session.\n');
+    }
+
+    case 'unlock': {
+      if (!isProtected()) return process.stdout.write('The vault has no master password; nothing to unlock.\n');
+      const [pw] = await readPasswords(['Master password: ']);
+      await security.unlock(pw);
+      return process.stdout.write('Unlocked.\n');
+    }
+
+    case 'lock': {
+      if (!isProtected()) die('the vault has no master password. Set one with `secretmgr protect`');
+      await security.lock();
+      return process.stdout.write('Locked. Agent activations ended; terminals clear their variables on the next prompt.\n');
+    }
+
+    case 'passwd': {
+      if (!isProtected()) die('the vault has no master password. Set one with `secretmgr protect`');
+      const [current] = await readPasswords(['Current master password: ']);
+      await security.changePassword(current, await newPassword());
+      return process.stdout.write('Master password changed.\n');
+    }
+
     case 'kill': {
       const { values } = flags(rest, { off: { type: 'boolean' } });
       if (values.off) requireHuman('turning the kill switch off');
@@ -220,8 +279,12 @@ async function main() {
     case 'status': {
       const s = st.getState();
       process.stdout.write(`kill switch: ${s.killed ? 'ON' : 'off'}\n`);
-      process.stdout.write(`key storage: ${vault.vaultExists() ? (getMasterKey(), keyBackendName()) : 'no vault yet'}\n`);
-      process.stdout.write(`groups: ${vault.vaultExists() ? vault.listGroups().map((g) => `${g.name}(${g.variableCount})`).join(', ') || '-' : '-'}\n`);
+      if (isProtected()) {
+        const sec = await security.securityStatus();
+        process.stdout.write(`vault: protected by master password, ${sec.unlocked ? `unlocked (${sec.idleMin ? `auto-locks after ${sec.idleMin} min idle` : 'no auto-lock'})` : 'LOCKED'}\n`);
+        if (sec.leftoverKey) process.stdout.write('WARNING: a plain copy of the key is still stored. Run `secretmgr unlock` to remove it.\n');
+      } else process.stdout.write(`key storage: ${vault.vaultExists() ? (getMasterKey(), keyBackendName()) : 'no vault yet'}  (no master password; run \`secretmgr protect\`)\n`);
+      process.stdout.write(`groups: ${vault.vaultExists() && !(isProtected() && !(await security.securityStatus()).unlocked) ? vault.listGroups().map((g) => `${g.name}(${g.variableCount})`).join(', ') || '-' : '-'}\n`);
       process.stdout.write(`agent active: ${Object.entries(s.active).map(([e, a]) => `${e}${a.primary ? '*' : ''}`).join(', ') || 'none'}\n`);
       return;
     }
@@ -311,4 +374,28 @@ async function main() {
   }
 }
 
-main().catch((e) => die(e.message));
+/** Start the local dashboard server (the process stays alive while it listens). */
+async function startDashboard({ port: wanted, open, screen } = {}) {
+  const { buildApp } = await import('../server/api.js');
+  let port = Number(wanted || process.env.SECRETMGR_PORT || 7777);
+  const token = randomToken();
+  for (let tries = 0; ; tries++) {
+    const app = await buildApp({ token, port, staticDir: path.resolve(HERE, '../../dashboard/dist') });
+    try {
+      await app.listen({ host: '127.0.0.1', port });
+      const url = `http://127.0.0.1:${port}/#token=${token}${screen ? `&screen=${screen}` : ''}`;
+      process.stdout.write(`secretmgr dashboard running (local only). Open:\n  ${url}\nCtrl+C to stop.\n`);
+      if (open) {
+        const opener = process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] : ['xdg-open', [url]];
+        spawn(opener[0], opener[1], { detached: true, stdio: 'ignore' }).on('error', () => {}).unref();
+      }
+      return;
+    } catch (e) {
+      await app.close();
+      if (e.code === 'EADDRINUSE' && tries < 10) port++;
+      else throw e;
+    }
+  }
+}
+
+main().catch((e) => die(e instanceof LockedError ? `${e.message}` : e.message));

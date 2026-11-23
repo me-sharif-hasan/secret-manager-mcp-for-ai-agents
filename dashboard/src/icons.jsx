@@ -18,17 +18,19 @@ import person from '@material-symbols/svg-400/outlined/person.svg?raw';
 import power_settings_new from '@material-symbols/svg-400/outlined/power_settings_new.svg?raw';
 import search from '@material-symbols/svg-400/outlined/search.svg?raw';
 import shield from '@material-symbols/svg-400/outlined/shield.svg?raw';
+import shield_lock from '@material-symbols/svg-400/outlined/shield_lock.svg?raw';
 import smart_toy from '@material-symbols/svg-400/outlined/smart_toy.svg?raw';
 import sync from '@material-symbols/svg-400/outlined/sync.svg?raw';
 import terminal from '@material-symbols/svg-400/outlined/terminal.svg?raw';
 import upload_file from '@material-symbols/svg-400/outlined/upload_file.svg?raw';
 import verified_user from '@material-symbols/svg-400/outlined/verified_user.svg?raw';
+import warning from '@material-symbols/svg-400/outlined/warning.svg?raw';
 import visibility from '@material-symbols/svg-400/outlined/visibility.svg?raw';
 import visibility_off from '@material-symbols/svg-400/outlined/visibility_off.svg?raw';
 
 const ICONS = {
   add, arrow_drop_down, block, bolt, check, close, content_copy, dashboard, delete: delete_, download, edit, history, key, layers, lock, lock_open, person,
-  power_settings_new, search, shield, smart_toy, sync, terminal, upload_file, verified_user, visibility, visibility_off,
+  power_settings_new, search, shield, shield_lock, smart_toy, sync, terminal, upload_file, verified_user, visibility, visibility_off, warning,
 };
 
 /** Material Symbols (outlined) inlined as SVG, so the dashboard makes no network requests for icons or fonts. */

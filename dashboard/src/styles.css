@@ -210,3 +210,10 @@ details.told p { margin-top: 6px; padding: 12px; border-radius: 12px; background
 .toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: nowrap; }
 .toolbar .search { flex: 0 0 260px; }
 @media (max-width: 800px) { .toolbar { flex-wrap: wrap; } .toolbar .search { flex: 1 1 200px; } .card .kv { gap: 8px; } }
+
+/* password strength meter */
+.meter { height: 6px; border-radius: 3px; background: var(--surface-high); margin: 8px 16px 0; overflow: hidden; }
+.meter i { display: block; height: 100%; border-radius: 3px; transition: width .15s; background: var(--outline); }
+.meter i.bad { background: var(--error); }
+.meter i.warn { background: #e0a030; }
+.meter i.ok { background: var(--primary); }

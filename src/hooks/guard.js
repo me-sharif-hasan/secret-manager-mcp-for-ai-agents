@@ -14,8 +14,8 @@ const DUMPERS = [
 ];
 
 const SELF = [
-  [/\.secretmgr\b|SECRETMGR_HOME/, 'touches the secretmgr data directory'],
-  [/(?:secretmgr|cli\/index\.js)(?:\.js)?["']?\s+(?:env|reveal|export|shell|dashboard|install|uninstall|exec-env|redact|hook|mcp)\b/, 'calls a secretmgr command that can expose values'],
+  [/\.secretmgr\b|SECRETMGR_[A-Z_]+/, 'touches the secretmgr data directory or settings'],
+  [/(?:secretmgr|cli\/index\.js)(?:\.js)?["']?\s+(?:env|reveal|export|shell|dashboard|install|uninstall|exec-env|redact|hook|mcp|unlock|protect|passwd|agent)\b/, 'calls a secretmgr command that can expose values'],
   [/(?:secretmgr|cli\/index\.js)(?:\.js)?["']?\s+kill\b.*(?:--off|restore)/, 'tries to turn the kill switch off'],
 ];
 
@@ -41,16 +41,19 @@ export function analyzeCommand(command, managedNames = []) {
  * The original command text stays fully visible inside the wrapper so permission prompts remain readable.
  * Working directory changes are carried back to the calling shell.
  */
-export function wrapCommand(original, nodePath, cliPath) {
+export function wrapCommand(original, nodePath, cliPath, { locked = false } = {}) {
   const q = (s) => `'${s.replace(/'/g, `'\\''`)}'`;
   const N = q(nodePath);
   const C = q(cliPath);
+  // Locked vault: nothing is loaded, so exec-env only strips and redact passes output through. Both are told
+  // explicitly, so an unlock that happens mid-command can never leave secrets loaded with redaction off.
+  const flag = locked ? ' --locked' : '';
   return [
     `__smd="$(mktemp)" && (`,
-    `__smenv="$(${N} ${C} exec-env)" || { echo 'secretmgr: could not prepare the environment, command not run' >&2; exit 126; }`,
+    `__smenv="$(${N} ${C} exec-env${flag})" || { echo 'secretmgr: could not prepare the environment, command not run' >&2; exit 126; }`,
     `eval "$__smenv"; unset __smenv`,
     `trap 'echo $? > "$__smd.rc"; pwd -P > "$__smd"' EXIT`,
     original,
-    `) 2>&1 | ${N} ${C} redact; __smrc="$(cat "$__smd.rc" 2>/dev/null)"; [ -s "$__smd" ] && cd "$(cat "$__smd")" 2>/dev/null; rm -f "$__smd" "$__smd.rc"; (exit "\${__smrc:-1}")`,
+    `) 2>&1 | ${N} ${C} redact${flag}; __smrc="$(cat "$__smd.rc" 2>/dev/null)"; [ -s "$__smd" ] && cd "$(cat "$__smd")" 2>/dev/null; rm -f "$__smd" "$__smd.rc"; (exit "\${__smrc:-1}")`,
   ].join('\n');
 }

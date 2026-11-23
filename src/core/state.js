@@ -9,7 +9,7 @@ import { audit } from './audit.js';
  * pending approvals, default environment for new terminals.
  * active[env] = { group, primary, activatedAt, expiresAt|null }
  */
-const fresh = () => ({ killed: false, defaultGroup: null, terminalDefaultEnv: 'dev', active: {}, pending: {} });
+const fresh = () => ({ killed: false, defaultGroup: null, terminalDefaultEnv: 'dev', active: {}, pending: {}, unlockRequestedAt: null });
 
 export function readState() {
   try {
@@ -68,6 +68,28 @@ export function setKilled(on, actor = 'you') {
     }
     audit({ actor, action: on ? 'kill-on' : 'kill-off', result: 'ok' });
     return s.killed;
+  });
+}
+
+/** Locking ends every agent activation (their values are gone with the key). */
+export function clearActive(actor = 'you') {
+  return mutateState((s) => {
+    const had = Object.keys(s.active).length;
+    s.active = {};
+    if (had) audit({ actor, action: 'deactivate_all', result: 'vault locked' });
+  });
+}
+
+/** The agent hit a locked vault. The dashboard shows an unlock prompt for a few minutes. */
+export function requestUnlock() {
+  return mutateState((s) => {
+    s.unlockRequestedAt = Date.now();
+  });
+}
+
+export function clearUnlockRequest() {
+  return mutateState((s) => {
+    s.unlockRequestedAt = null;
   });
 }
 

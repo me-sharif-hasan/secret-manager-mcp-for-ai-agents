@@ -69,7 +69,14 @@ export function terminalScript(shell, { env, group, unload = false }) {
  * First strips every managed name inherited from wherever the agent was launched, then
  * exports only what the active environments allow, then prints a banner naming them.
  */
-export function agentScript() {
+export function agentScript({ locked = false } = {}) {
+  if (locked) {
+    // The vault is locked: nothing can be loaded and the names are unknown. Strip what terminals tracked and say so.
+    const prev = prevKeys();
+    const lines = prev.length ? [`unset ${prev.join(' ')}`] : [];
+    lines.push(`printf '%s\\n' '[secretmgr: no secrets loaded (vault locked or master password not set)]'`);
+    return lines.join('\n') + '\n';
+  }
   const strip = [...managedNames()].filter((k) => KEY_RE.test(k));
   const env = agentEnvironment();
   const lines = [];

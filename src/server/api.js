@@ -6,7 +6,9 @@ import * as vault from '../core/vault.js';
 import * as st from '../core/state.js';
 import { audit, readAudit } from '../core/audit.js';
 import { safeEqual } from '../core/crypto.js';
-import { keyBackendName, getMasterKey } from '../core/keystore.js';
+import { keyBackendName, getMasterKey, acquireKey } from '../core/keystore.js';
+import * as security from '../core/security.js';
+import { LockedError, WrongPasswordError, requiresSetup } from '../core/lockbox.js';
 import { installShells } from '../shell/install.js';
 import { initScript, } from '../shell/init.js';
 import { openTerminal } from '../shell/terminal.js';
@@ -30,6 +32,18 @@ export async function buildApp({ token, port, staticDir } = {}) {
     if (!token || !safeEqual(auth.replace(/^Bearer /, ''), token)) return reply.code(401).send({ error: 'Missing or invalid token. Open the dashboard with `secretmgr dashboard`.' });
   });
 
+  // The vault key is fetched from the key agent per request and dropped afterwards, so locking takes effect at once.
+  // A locked vault is not an error here: routes that need the key get LockedError (HTTP 423) when they ask for it.
+  app.addHook('preHandler', async (req) => {
+    if (!req.url.startsWith('/api/')) return;
+    try {
+      req.releaseKey = await acquireKey();
+    } catch (e) {
+      if (!(e instanceof LockedError)) throw e;
+    }
+  });
+  app.addHook('onResponse', async (req) => req.releaseKey?.());
+
   app.setErrorHandler((err, _req, reply) => {
     const status = err.status || err.statusCode || 500;
     reply.code(status).send({ error: status >= 500 ? `Internal error: ${err.message}` : err.message });
@@ -41,19 +55,30 @@ export async function buildApp({ token, port, staticDir } = {}) {
   app.get('/api/state', async () => {
     const s = st.getState();
     let backend = null;
+    let groups = [];
+    let locked = false;
     try {
       getMasterKey();
       backend = keyBackendName();
-    } catch {
-      /* vault not initialised yet */
+      groups = vault.vaultExists() ? vault.listGroups() : [];
+    } catch (e) {
+      if (e instanceof LockedError) {
+        locked = true;
+        backend = 'master password (locked)';
+      } /* else: vault not initialised yet */
     }
+    const sec = await security.securityStatus();
     return {
+      locked,
+      needsSetup: requiresSetup(),
+      protected: sec.protected,
+      unlockRequested: Boolean(s.unlockRequestedAt && Date.now() - s.unlockRequestedAt < 10 * 60_000),
       killed: s.killed,
       defaultGroup: s.defaultGroup,
       terminalDefaultEnv: s.terminalDefaultEnv,
       active: s.active,
       approvals: st.pendingApprovals(),
-      groups: vault.vaultExists() ? vault.listGroups() : [],
+      groups,
       keyBackend: backend,
     };
   });
@@ -62,6 +87,52 @@ export async function buildApp({ token, port, staticDir } = {}) {
   app.put('/api/terminal-default', async (req) => {
     st.setTerminalDefaultEnv(String(req.body?.env || ''));
     return { ok: true };
+  });
+
+  // ---------------------------------------------------------- security
+  // Online guessing is throttled; offline guessing is limited only by scrypt and the password itself.
+  let fails = 0;
+  let blockedUntil = 0;
+  const attempt = async (fn) => {
+    const wait = Math.ceil((blockedUntil - Date.now()) / 1000);
+    if (wait > 0) throw Object.assign(new Error(`Too many wrong passwords. Try again in ${wait}s.`), { status: 429 });
+    try {
+      const r = await fn();
+      fails = 0;
+      return r;
+    } catch (e) {
+      if (e instanceof WrongPasswordError) {
+        fails++;
+        if (fails >= 5) blockedUntil = Date.now() + Math.min(300_000, 2 ** (fails - 4) * 5_000);
+        audit({ actor: 'you', action: 'unlock', result: 'wrong password' });
+      }
+      throw e;
+    }
+  };
+  const pw = (v, name) => {
+    if (typeof v !== 'string' || !v || v.length > 1024) throw Object.assign(new Error(`${name} is required`), { status: 400 });
+    return v;
+  };
+  app.get('/api/security', async () => security.securityStatus());
+  app.post('/api/security/enable', async (req) => {
+    await security.enableProtection(pw(req.body?.password, 'Password'));
+    return security.securityStatus();
+  });
+  app.post('/api/security/unlock', async (req) => {
+    await attempt(() => security.unlock(pw(req.body?.password, 'Password')));
+    return security.securityStatus();
+  });
+  app.post('/api/security/lock', async () => {
+    await security.lock();
+    return security.securityStatus();
+  });
+  app.put('/api/security/password', async (req) => {
+    await attempt(() => security.changePassword(pw(req.body?.current, 'Current password'), pw(req.body?.next, 'New password')));
+    return { ok: true };
+  });
+  app.put('/api/security/idle', async (req) => {
+    await security.setIdleMin(req.body?.minutes);
+    return security.securityStatus();
   });
 
   // ------------------------------------------------------------ groups
@@ -155,6 +226,7 @@ export async function buildApp({ token, port, staticDir } = {}) {
   // ------------------------------------------------------------- agent
   app.post('/api/agent/activate', async (req) => {
     const { group, env, primary } = req.body || {};
+    if (requiresSetup()) throw Object.assign(new Error('Set a master password before agents can use secrets.'), { status: 403 });
     const view = vault.viewGroup(group);
     const settings = view.envs[env];
     if (!settings) throw Object.assign(new Error(`Unknown environment "${env}"`), { status: 404 });

@@ -60,7 +60,36 @@ secretmgr export --env dev         (interactive terminals only)
 secretmgr reveal KEY --env dev     (interactive terminals only)
 secretmgr list --env dev | group create <name> | group list | status
 secretmgr kill [--off]
+secretmgr protect | unlock | lock | passwd     master password (see below)
 ```
+
+## Master password
+
+A master password is **required** before agents can use any secret. Without one, the vault key would sit in your OS
+keychain (or a `0600` file), and anyone who copies the vault **and** the keychain could decrypt it.
+
+- `secretmgr init` opens the dashboard on the setup screen straight away (set it there, or run `secretmgr protect`).
+  Existing installs are asked the same way: until a password is set, the dashboard shows only the setup screen, the MCP
+  tools answer "set a master password", and agent Bash commands run with nothing loaded. Your own terminal commands
+  (`secretmgr use`, `set`, `list`, ...) keep working.
+- The vault key is wrapped with a key derived from your password (scrypt, N=2^17) and the plain key is **removed** from
+  the keychain and `master.key`. The vault, `lock.json` and the keychain files together cannot decrypt anything
+  without the password. A test checks that the key appears in no file after protection.
+- Unlock once per login session (`secretmgr unlock` or the dashboard). The key is then held in memory by a small
+  per-user helper process (never written to disk) and auto-locks after 30 idle minutes (configurable, or never).
+- Locking ends agent activations, and terminals clear their variables on the next prompt. While locked, the agent's
+  Bash commands still run but with nothing loaded; `activate_env` answers "vault locked" and shows an unlock prompt in
+  the dashboard. The agent never sees the password.
+- Changing the password only re-wraps the key (instant, data is not re-encrypted). Wrong guesses in the dashboard are
+  throttled.
+- **There is no recovery.** Forget the password and the vault is gone. The dashboard offers a generator for a random
+  100-bit password; write it down.
+- Strength is only as good as your password. The meter is a rough estimate and cannot tell a memorable sentence from a
+  random string.
+- Not covered: malware running as your user while the vault is unlocked (it can ask the helper for the key), keyloggers,
+  and a fake unlock prompt. Lock when you step away.
+- TOTP is deliberately not offered as a way to protect the vault: the seed has to be stored on the machine, so it
+  cannot protect files that are stolen.
 
 ## What this protects against, and what it does not
 
@@ -81,7 +110,8 @@ It prevents **accidental** exposure and prompt-injection-driven exfiltration thr
 
 Tested on Linux (bash, zsh) with automated tests (`npm test`): vault, redaction, policy, Bash wrapper, hook,
 shell hooks, installer, API, MCP over stdio, guidance rules.
-**Written but not tested on real systems:** macOS Keychain, Windows DPAPI, PowerShell, fish, cmd (`sm`), the
+The master-password path is tested on Linux (wrap/unwrap, key removal, lock/unlock, idle lock, API throttle, MCP, wrapper).
+**Written but not tested on real systems:** macOS Keychain, Windows DPAPI, the Windows named pipe for the key helper, PowerShell, fish, cmd (`sm`), the
 macOS and Windows terminal launchers for "Open shell".
 
 Claude Code hook behaviour to verify on your version (`claude --debug`): the hook returns `updatedInput`

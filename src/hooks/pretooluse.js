@@ -6,6 +6,7 @@ import { managedNames, agentEnvironment, checkGuidance } from '../core/policy.js
 import { getState } from '../core/state.js';
 import { audit } from '../core/audit.js';
 import { file } from '../core/paths.js';
+import { LockedError, requiresSetup } from '../core/lockbox.js';
 
 const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../cli/index.js');
 
@@ -35,7 +36,17 @@ export async function runPreToolUseHook() {
     if (typeof command !== 'string' || !command.trim()) return;
 
     const state = getState();
-    const names = managedNames();
+    // A locked vault has no readable names or values: commands still run, with nothing loaded.
+    let names;
+    let locked = false;
+    try {
+      if (requiresSetup()) throw new LockedError(); // no master password yet: agents get nothing
+      names = managedNames();
+    } catch (e) {
+      if (!(e instanceof LockedError)) throw e;
+      locked = true;
+      names = new Set();
+    }
     const why = analyzeCommand(command, names);
     if (why) {
       audit({ actor: 'agent', action: 'bash', result: `blocked: ${why}` });
@@ -46,14 +57,14 @@ export async function runPreToolUseHook() {
       return reply({ permissionDecision: 'deny', permissionDecisionReason: 'secretmgr: the kill switch is on, so secret variables are unavailable.' });
     }
 
-    const blocked = checkGuidance(command, agentEnvironment().envs);
+    const blocked = locked ? null : checkGuidance(command, agentEnvironment().envs);
     if (blocked) {
       audit({ actor: 'agent', action: 'bash', result: 'blocked by environment guidance' });
       return reply({ permissionDecision: 'deny', permissionDecisionReason: `secretmgr: ${blocked}` });
     }
 
     const out = {
-      updatedInput: { ...event.tool_input, command: wrapCommand(command, process.execPath, CLI) },
+      updatedInput: { ...event.tool_input, command: wrapCommand(command, process.execPath, CLI, { locked }) },
       permissionDecisionReason: 'secretmgr: scoped secret load and output redaction',
     };
     // Default: leave the user's normal permission flow in charge. Opt in to auto-approve via config.json.

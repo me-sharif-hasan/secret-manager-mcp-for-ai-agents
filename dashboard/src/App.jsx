@@ -10,6 +10,7 @@ import Environments from './screens/Environments.jsx';
 import AgentAccess from './screens/AgentAccess.jsx';
 import ShellSync from './screens/ShellSync.jsx';
 import Audit from './screens/Audit.jsx';
+import Security, { SetupCard } from './screens/Security.jsx';
 
 const SCREENS = [
   { id: 'overview', name: 'Overview', icon: 'dashboard', el: Overview },
@@ -18,6 +19,7 @@ const SCREENS = [
   { id: 'envs', name: 'Environments', icon: 'layers', el: Environments },
   { id: 'access', name: 'Agent access', icon: 'smart_toy', el: AgentAccess },
   { id: 'shell', name: 'Shell sync', icon: 'terminal', el: ShellSync },
+  { id: 'security', name: 'Security', icon: 'shield_lock', el: Security },
   { id: 'audit', name: 'Audit log', icon: 'history', el: Audit },
 ];
 
@@ -79,6 +81,7 @@ export default function App() {
 
   const refresh = useCallback(async () => {
     const s = await loadState();
+    if (s?.locked) return setData(null); // nothing to load until the vault is unlocked
     const has = (n) => n && s?.groups.some((x) => x.name === n);
     const g = has(group) ? group : has(s?.defaultGroup) ? s.defaultGroup : s?.groups[0]?.name;
     if (g && g !== group) setGroup(g);
@@ -106,6 +109,20 @@ export default function App() {
           <pre>secretmgr dashboard</pre>
         </div>
       </div>
+    );
+  }
+
+  if (state?.locked) return <Unlock state={state} onDone={refresh} />;
+  if (state?.needsSetup) {
+    return (
+      <Ctx.Provider value={ctx}>
+        <Setup state={state} onDone={refresh} />
+        {snack && (
+          <div className="snack" role="status">
+            {snack}
+          </div>
+        )}
+      </Ctx.Provider>
     );
   }
 
@@ -236,6 +253,68 @@ export default function App() {
         </div>
       )}
     </Ctx.Provider>
+  );
+}
+
+function Setup({ state, onDone }) {
+  return (
+    <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, alignItems: 'center', width: '100%' }}>
+        <div className="logo" style={{ width: 64, height: 64, borderRadius: 20, background: 'var(--primary-container)', color: 'var(--on-primary-container)', display: 'grid', placeItems: 'center' }}>
+          <Icon name="shield_lock" />
+        </div>
+        {state.unlockRequested && (
+          <div className="banner warn" style={{ margin: 0, maxWidth: 560 }}>
+            <Icon name="verified_user" />
+            <span className="t">The agent is waiting for a master password to be set.</span>
+          </div>
+        )}
+        <SetupCard onDone={onDone} />
+      </div>
+    </div>
+  );
+}
+
+function Unlock({ state, onDone }) {
+  const [pw, setPw] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    setBusy(true);
+    setErr('');
+    try {
+      await api('/security/unlock', { method: 'POST', body: { password: pw } });
+      setPw('');
+      onDone();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24 }}>
+      <div className="card center" style={{ border: 0, background: 'transparent', width: '100%' }}>
+        <div className="logo">
+          <Icon name="lock" />
+        </div>
+        <h2>Vault locked</h2>
+        {state.unlockRequested && (
+          <div className="banner warn" style={{ margin: 0 }}>
+            <Icon name="verified_user" />
+            <span className="t">The agent is waiting for you to unlock.</span>
+          </div>
+        )}
+        <p className="muted">Enter your master password. Nothing in the vault is readable until you do.</p>
+        <div style={{ width: '100%', textAlign: 'left' }} onKeyDown={(e) => e.key === 'Enter' && pw && !busy && submit()}>
+          <Field id="unlock-pw" label="Master password" type="password" value={pw} onChange={setPw} autoFocus error={err} />
+        </div>
+        <button className="btn filled icon" disabled={!pw || busy} onClick={submit}>
+          <Icon name="lock_open" />
+          Unlock
+        </button>
+      </div>
+    </div>
   );
 }
 

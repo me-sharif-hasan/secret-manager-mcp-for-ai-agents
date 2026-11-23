@@ -12,6 +12,7 @@ export function sandbox() {
   process.env.SECRETMGR_HOME = path.join(dir, 'data');
   process.env.HOME = path.join(dir, 'home');
   process.env.SECRETMGR_KEY_BACKEND = 'file';
+  process.env.SECRETMGR_ALLOW_UNPROTECTED = '1'; // test suite only; real installs require a master password
   fs.mkdirSync(process.env.HOME, { recursive: true });
   return dir;
 }

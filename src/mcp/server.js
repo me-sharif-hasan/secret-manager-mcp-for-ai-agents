@@ -7,6 +7,8 @@ import { agentActivate, resolveGroup, envSuffix } from '../core/policy.js';
 import { guidanceText, LEVEL_LABEL } from '../core/guidance.js';
 import { audit } from '../core/audit.js';
 import { runScoped } from '../shell/runner.js';
+import { withKey } from '../core/keystore.js';
+import { LockedError, requiresSetup } from '../core/lockbox.js';
 
 const INSTRUCTIONS = `This server manages secrets WITHOUT ever returning their values.
 Workflow: call list_envs, then activate_env("dev") (or another allowed environment). Afterwards, every Bash command you run can reference secrets as ordinary shell variables, for example:
@@ -20,8 +22,33 @@ Use run_with_secrets only when Bash is unavailable or not protected by the secre
 const text = (obj) => ({ content: [{ type: 'text', text: typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2) }] });
 const fail = (msg) => ({ isError: true, content: [{ type: 'text', text: msg }] });
 
+const LOCKED_TEXT =
+  'The vault is locked. The owner must unlock it with their master password (dashboard, or `secretmgr unlock` in a terminal). A request was posted to the dashboard. Do not ask for the password: tell the user, then retry after they confirm.';
+
+const SETUP_TEXT =
+  'The owner has not set a master password yet, and agents cannot use any secret until they do. A setup request was posted. Tell the user to run `secretmgr dashboard` (it opens the setup screen), then retry. Do not ask for or suggest a password.';
+
 export function createServer() {
   const server = new McpServer({ name: 'secretmgr', version: '0.1.0' }, { instructions: INSTRUCTIONS });
+
+  // Every tool runs with the vault key only for the duration of the call; a locked vault answers politely.
+  const register = server.registerTool.bind(server);
+  server.registerTool = (name, config, handler) =>
+    register(name, config, async (...args) => {
+      if (requiresSetup()) {
+        st.requestUnlock();
+        audit({ actor: 'agent', action: name, result: 'denied: master password not set' });
+        return fail(SETUP_TEXT);
+      }
+      try {
+        return await withKey(() => handler(...args));
+      } catch (e) {
+        if (!(e instanceof LockedError)) throw e;
+        st.requestUnlock();
+        audit({ actor: 'agent', action: name, result: 'denied: vault locked' });
+        return fail(LOCKED_TEXT);
+      }
+    });
 
   server.registerTool(
     'status',
@@ -64,6 +91,7 @@ export function createServer() {
           })),
         });
       } catch (e) {
+        if (e instanceof LockedError) throw e;
         return fail(e.message);
       }
     },
@@ -85,6 +113,7 @@ export function createServer() {
         const r = await agentActivate({ env, group, primary });
         return r.ok ? text(r) : fail(r.reason);
       } catch (e) {
+        if (e instanceof LockedError) throw e;
         return fail(e.message);
       }
     },
@@ -107,6 +136,7 @@ export function createServer() {
         const g = resolveGroup(group);
         return text(vault.agentVisible(g, env).map((v) => ({ name: v.key, suffixedName: `${v.key}__${envSuffix(env)}`, access: v.access })));
       } catch (e) {
+        if (e instanceof LockedError) throw e;
         return fail(e.message);
       }
     },
@@ -135,6 +165,7 @@ export function createServer() {
         audit({ actor: 'agent', action: 'set_var', group: g, env, key, result: 'ok' });
         return text({ ok: true, key, env });
       } catch (e) {
+        if (e instanceof LockedError) throw e;
         return fail(e.message);
       }
     },
