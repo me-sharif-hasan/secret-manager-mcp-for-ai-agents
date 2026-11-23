@@ -14,26 +14,37 @@ const IDLE = [
   ['240', 'After 4 hours'],
 ];
 
-// 32 unambiguous characters, so each one is exactly 5 bits: 20 characters is 100 bits.
-const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+// 54 unambiguous letters and digits, four groups of five joined by hyphens: about 115 bits, and it always
+// contains a capital, a small letter, a number and a special character (the hyphen).
+const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
 export function generatePassword() {
-  const bytes = crypto.getRandomValues(new Uint8Array(20));
-  const chars = Array.from(bytes, (b) => ALPHABET[b % 32]);
-  return [0, 5, 10, 15].map((i) => chars.slice(i, i + 5).join('')).join('-');
+  for (;;) {
+    const chars = [];
+    while (chars.length < 20) {
+      const [b] = crypto.getRandomValues(new Uint8Array(1));
+      if (b < 216) chars.push(ALPHABET[b % 54]); // 216 = 4 x 54: no modulo bias
+    }
+    const pw = [0, 5, 10, 15].map((i) => chars.slice(i, i + 5).join('')).join('-');
+    if (checkStrength(pw).ok) return pw;
+  }
 }
 
 export function Meter({ password }) {
   if (!password) return null;
   const s = checkStrength(password);
   const pct = Math.min(100, Math.round((s.bits / 100) * 100));
-  const kind = !s.ok ? 'bad' : s.bits >= 80 ? 'ok' : 'warn';
+  const kind = !s.ok ? 'bad' : s.bits >= 70 ? 'ok' : 'warn';
   return (
     <div>
       <div className="meter" aria-hidden="true">
         <i className={kind} style={{ width: `${Math.max(6, pct)}%` }} />
       </div>
       <p className="sub" style={{ margin: '4px 16px 0', color: s.ok ? undefined : 'var(--error)' }}>
-        {s.ok ? `About ${s.bits} bits. This is a rough estimate; a random password is the only reliably strong one.` : s.reason}
+        {!s.ok
+          ? s.reason
+          : s.bits >= 70
+            ? `About ${s.bits} bits (rough estimate). Good.`
+            : `Meets the rules, but only about ${s.bits} bits. Someone holding your vault files could guess it offline. Longer, or the generator, is much stronger.`}
       </p>
     </div>
   );
@@ -47,7 +58,7 @@ export function NewPassword({ idPrefix, onValid }) {
   const report = (a, b) => onValid(a && a === b && checkStrength(a).ok ? a : null);
   return (
     <>
-      <Field id={`${idPrefix}-new`} label="New master password" type={show ? 'text' : 'password'} value={pw} bg="var(--surface-lowest)" onChange={(v) => { setPw(v); report(v, again); }} />
+      <Field id={`${idPrefix}-new`} label="New master password" hint="At least 8 characters with a capital, a small letter, a number and a special character" type={show ? 'text' : 'password'} value={pw} bg="var(--surface-lowest)" onChange={(v) => { setPw(v); report(v, again); }} />
       <Meter password={pw} />
       <Field id={`${idPrefix}-again`} label="Repeat it" type={show ? 'text' : 'password'} value={again} bg="var(--surface-lowest)" error={again && pw !== again ? 'The two passwords differ' : ''} onChange={(v) => { setAgain(v); report(pw, v); }} />
       <div className="actions-row">

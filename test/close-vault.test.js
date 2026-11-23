@@ -12,7 +12,7 @@ const st = await import('../src/core/state.js');
 const { readAudit } = await import('../src/core/audit.js');
 const { file } = await import('../src/core/paths.js');
 
-const PW = 'correct horse battery staple 5';
+const PW = 'Correct-horse-battery-5';
 const cli = (args, input = '') => spawnSync(process.execPath, [CLI, ...args], { encoding: 'utf8', env: childEnv(), input });
 
 vault.createGroup('shop');

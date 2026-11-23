@@ -92,9 +92,11 @@ keychain (or a `0600` file), and anyone who copies the vault **and** the keychai
 - Changing the password only re-wraps the key (instant, data is not re-encrypted). Wrong guesses in the dashboard are
   throttled.
 - **There is no recovery.** Forget the password and the vault is gone. The dashboard offers a generator for a random
-  100-bit password; write it down.
-- Strength is only as good as your password. The meter is a rough estimate and cannot tell a memorable sentence from a
-  random string.
+  ~115-bit password; write it down.
+- The rule is at least 8 characters with a capital, a small letter, a number and a special character. That is easy to
+  remember but weak against someone who has copied your vault files and can guess offline (an 8-character password is
+  roughly 50 bits at best, and people pick predictable ones). The meter says so; longer or generated is much stronger.
+  The "files alone are useless" guarantee holds only as far as the password does.
 - Not covered: malware running as your user while the vault is unlocked (it can ask the helper for the key), keyloggers,
   and a fake unlock prompt. Lock when you step away.
 - TOTP is deliberately not offered as a way to protect the vault: the seed has to be stored on the machine, so it

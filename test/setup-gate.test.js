@@ -16,7 +16,7 @@ const { requiresSetup } = await import('../src/core/lockbox.js');
 const { buildApp } = await import('../src/server/api.js');
 
 const SECRET = 'dev-Zk39-secret-value-for-gate';
-const PW = 'correct horse battery staple 9';
+const PW = 'Correct-horse-battery-9';
 
 vault.createGroup('shop');
 st.setDefaultGroup('shop');

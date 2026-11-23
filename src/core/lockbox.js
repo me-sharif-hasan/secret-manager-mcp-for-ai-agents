@@ -27,7 +27,7 @@ export class WrongPasswordError extends Error {
   constructor() {
     super('Wrong password');
     this.name = 'WrongPasswordError';
-    this.status = 401;
+    this.status = 403; // not 401: the dashboard treats 401 as "session token invalid"
   }
 }
 

@@ -16,8 +16,8 @@ const { wrapCommand } = await import('../src/hooks/guard.js');
 const { buildApp } = await import('../src/server/api.js');
 
 const SECRET = 'prod-Qm81-very-secret-value';
-const PW1 = 'correct horse battery staple 7';
-const PW2 = 'another long passphrase 42 !';
+const PW1 = 'Correct-horse-battery-7';
+const PW2 = 'Another-long-pass-42!';
 
 const cli = (args, input = '') => spawnSync(process.execPath, [CLI, ...args], { encoding: 'utf8', env: childEnv(), input });
 const out = (r) => `${r.stdout}${r.stderr}`;
@@ -32,10 +32,14 @@ after(() => {
 });
 
 test('strength: short, common and repetitive passwords are refused; a long random one passes', () => {
-  assert.equal(lockbox.checkStrength('short1!').ok, false);
-  assert.equal(lockbox.checkStrength('password12345!!').ok, false);
-  assert.equal(lockbox.checkStrength('aaaaaaaaaaaaaaaa').ok, false);
-  assert.equal(lockbox.checkStrength('7QK2M-XH9TD-4RW6B-NP3VC').ok, true);
+  assert.equal(lockbox.checkStrength('Ab1!xyz').ok, false, '7 characters');
+  assert.match(lockbox.checkStrength('abcdefgh').reason, /capital.*number.*special/);
+  assert.match(lockbox.checkStrength('ABCDEFG1!').reason, /small letter/);
+  assert.match(lockbox.checkStrength('Abcdefgh!').reason, /number/);
+  assert.match(lockbox.checkStrength('Abcdefg1').reason, /special/);
+  assert.match(lockbox.checkStrength('Password1!').reason, /common/);
+  assert.equal(lockbox.checkStrength('Abcd3fg!').ok, true, 'exactly 8 characters with all four kinds is accepted');
+  assert.equal(lockbox.checkStrength('7QK2M-xh9td-4RW6B-NP3vc').ok, true);
   assert.equal(lockbox.checkStrength(PW1).ok, true);
 });
 
@@ -47,7 +51,7 @@ test('wrap/unwrap: right password returns the key, wrong password is refused, ch
   assert.ok((await lockbox.unwrap(PW1)).equals(key));
   await assert.rejects(() => lockbox.unwrap('not the password at all!'), lockbox.WrongPasswordError);
   await assert.rejects(() => lockbox.changePassword('wrong one wrong one 1!', PW2), lockbox.WrongPasswordError);
-  await assert.rejects(() => lockbox.changePassword(PW1, 'weak'), /at least 12/);
+  await assert.rejects(() => lockbox.changePassword(PW1, 'weak'), /at least 8/);
   await lockbox.changePassword(PW1, PW2);
   await assert.rejects(() => lockbox.unwrap(PW1), lockbox.WrongPasswordError);
   assert.ok((await lockbox.unwrap(PW2)).equals(key));
@@ -177,11 +181,11 @@ test('dashboard API: locked state, 423 on vault routes, unlock needs the passwor
 
   r = await post('/api/security/password', { current: PW2, next: 'weak' }, 'PUT');
   assert.equal(r.statusCode, 400);
-  assert.match(r.json().error, /at least 12/);
+  assert.match(r.json().error, /at least 8/);
 
   r = await post('/api/security/lock', {});
   assert.equal(r.json().unlocked, false);
-  for (let i = 0; i < 5; i++) assert.equal((await post('/api/security/unlock', { password: 'nope nope nope nope 99' })).statusCode, 401);
+  for (let i = 0; i < 5; i++) assert.equal((await post('/api/security/unlock', { password: 'Nope-nope-99' })).statusCode, 403);
   r = await post('/api/security/unlock', { password: PW2 });
   assert.equal(r.statusCode, 429, 'correct password is also refused while throttled');
   await app.close();
